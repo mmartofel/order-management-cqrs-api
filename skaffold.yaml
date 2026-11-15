@@ -10,12 +10,15 @@ build:
     - image: order-management-reference-service      # bare names, as in the manifests; registry from --default-repo
       jib:
         project: order-management-reference-service
+        args: ["-DskipTests"]          # tests run in ./mvnw verify and CI, not in every image build
     - image: order-management-command-service
       jib:
         project: order-management-command-service
+        args: ["-DskipTests"]          # tests run in ./mvnw verify and CI, not in every image build
     - image: order-management-query-service
       jib:
         project: order-management-query-service
+        args: ["-DskipTests"]          # tests run in ./mvnw verify and CI, not in every image build
   tagPolicy:
     gitCommit: {}
 manifests:
