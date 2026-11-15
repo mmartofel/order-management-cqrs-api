@@ -15,6 +15,7 @@ Version 1.0.0.
 ├── order-management-reference-service/  # Person, Address, Item CRUD
 ├── docker-compose.yml                   # local PostgreSQL x3 and Kafka
 ├── deploy/, skaffold.yaml               # OpenShift / Kubernetes manifests (Kustomize) and image build + deploy
+├── docs/images/                         # pictures used in this README
 ├── .github/workflows/ci.yml             # build and test on every push and pull request
 └── CLAUDE.md                            # architecture decisions (style, scope, topology, event store)
 ```
@@ -111,6 +112,11 @@ three service images with Jib and deploys them:
 | `postgres-command`, `postgres-query`, `postgres-reference` | Deployment, Service, PVC (1Gi) | `postgres:18`; credentials in the Secrets of the same name |
 | `kafka` | Deployment, Service, PVC (2Gi) | Single-node `apache/kafka:4.1.0` in KRaft mode; topics are created by the services |
 
+This is how the deployed stack looks in the Topology view of the OpenShift console. An arrow points from each service
+to what it calls, and a Route link sits on each service:
+
+![The order-management application in the OpenShift Topology view: command, query and reference services, Kafka, and three PostgreSQL databases](docs/images/openshift-topology.png)
+
 ```
 deploy/
   base/                   plain Kubernetes: Deployments, Services, ConfigMaps, PVCs, probes, resources
@@ -151,8 +157,8 @@ skaffold run -p openshift --default-repo=quay.io/<org> -n order-management --lab
   PostgreSQL keeps the password of its first start. No secret value is in git.
 - **Security:** every container runs under OpenShift's `restricted-v2` SCC, with a random UID and no root. The Kafka
   image needs a writable config folder for that: an init container copies it into an `emptyDir`.
-- **Topology:** in the Developer console the stack is the `order-management` group. It shows Spring, PostgreSQL and
-  AMQ (Kafka) icons, arrows from each service to what it calls, and a link to this repository.
+- **Topology:** in the Developer console the stack is the `order-management` group (see the picture above). It shows
+  Spring, PostgreSQL and AMQ (Kafka) icons, arrows from each service to what it calls, and a link to this repository.
 - **Environment settings:** copy `deploy/environments/example` to `deploy/environments/<env>`, adjust replicas and
   volume sizes, and deploy with `DEPLOY_OVERLAY=deploy/environments/<env> skaffold run -p openshift ...`.
 - **Remove:** `skaffold delete -p openshift -n order-management` removes everything in the manifests, **including the
