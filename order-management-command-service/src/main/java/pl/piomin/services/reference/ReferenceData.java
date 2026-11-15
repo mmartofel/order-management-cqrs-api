@@ -27,7 +27,7 @@ public class ReferenceData {
         AddressRef address = fetch(() -> client.address(addressId), "addressId",
                 "Address " + addressId + " does not exist");
         // an address of someone else is reported like a missing one: it does not exist for this person
-        if (!address.personId().equals(personId)) {
+        if (!address.person().id().equals(personId)) {
             throw new InvalidReferenceException("addressId",
                     "Address " + addressId + " does not belong to person " + personId);
         }

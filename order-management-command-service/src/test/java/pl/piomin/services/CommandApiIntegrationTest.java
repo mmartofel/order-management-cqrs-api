@@ -82,7 +82,7 @@ class CommandApiIntegrationTest {
     void editorAndReferenceData() {
         client = client.mutate().defaultHeader(HttpHeaders.AUTHORIZATION, TestJwtConfig.EDITOR_TOKEN).build();
         when(referenceClient.person(1L)).thenReturn(new PersonRef(1L));
-        when(referenceClient.address(2L)).thenReturn(new AddressRef(2L, 1L));
+        when(referenceClient.address(2L)).thenReturn(new AddressRef(2L, new PersonRef(1L)));
         when(referenceClient.item(10L)).thenReturn(new ItemRef(10L, "SKU-10", "Mug", new BigDecimal("19.99")));
         when(referenceClient.item(99L)).thenThrow(HttpClientErrorException.create(HttpStatus.NOT_FOUND, "Not Found",
                 null, null, null));

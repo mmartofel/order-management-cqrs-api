@@ -43,7 +43,9 @@ springdoc:
   writer-with-order-by-keys: true                  # stable file, readable diffs
 
 server:
-  port: ${SERVER_PORT:8080}
+  # behind the gateway: Location headers and redirects use the host the client called (X-Forwarded-*)
+  forward-headers-strategy: framework
+  port: ${SERVER_PORT:8083}
   shutdown: graceful
 
 management:

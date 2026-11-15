@@ -15,8 +15,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureRestTestClient;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
-import org.springframework.data.domain.PageImpl;
-import org.springframework.data.web.PagedModel;
 import org.springframework.http.HttpHeaders;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -334,8 +332,8 @@ class ProjectionIntegrationTest {
                 .contains("invalid-state");
     }
 
-    private static PagedModel<?> paged(List<?> content) {
-        return new PagedModel<>(new PageImpl<>(content));
+    private static ReferenceClient.Page<?> paged(List<?> content) {
+        return new ReferenceClient.Page<>(content);
     }
 
     private OrderResponse awaitOrder(UUID orderId, java.util.function.Predicate<OrderResponse> condition) {

@@ -2,6 +2,7 @@ package pl.piomin.services.reference;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.converter.HttpMessageConversionException;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClientException;
 import pl.piomin.services.api.Reference;
@@ -17,8 +18,8 @@ import java.util.stream.Collectors;
 /**
  * Display names of people and addresses, read from the reference service when a response is built: one call per
  * relation and page. Events keep only ids, so names live only in the reference service and erasing a person there
- * erases them here too. An id the reference service does not know (erased) or cannot answer for (down) gets a
- * generic label such as "Person 7", so reads keep working.
+ * erases them here too. An id the reference service does not know (erased) or cannot answer for (down, or an answer
+ * this client cannot read) gets a generic label such as "Person 7", so reads keep working.
  */
 @Component
 public class ReferenceLabels {
@@ -35,13 +36,13 @@ public class ReferenceLabels {
     }
 
     public Function<Long, Reference> persons(Collection<Long> ids) {
-        Map<Long, String> labels = fetch(ids, "persons", batch -> client.persons(batch, MAX_IDS).getContent().stream()
+        Map<Long, String> labels = fetch(ids, "persons", batch -> client.persons(batch, MAX_IDS).content().stream()
                 .collect(Collectors.toMap(ReferenceClient.PersonRef::id, p -> p.firstName() + " " + p.lastName())));
         return id -> new Reference(id, labels.getOrDefault(id, "Person " + id));
     }
 
     public Function<Long, Reference> addresses(Collection<Long> ids) {
-        Map<Long, String> labels = fetch(ids, "addresses", batch -> client.addresses(batch, MAX_IDS).getContent()
+        Map<Long, String> labels = fetch(ids, "addresses", batch -> client.addresses(batch, MAX_IDS).content()
                 .stream().collect(Collectors.toMap(ReferenceClient.AddressRef::id,
                         a -> a.street() + ", " + a.postalCode() + " " + a.city())));
         return id -> new Reference(id, labels.getOrDefault(id, "Address " + id));
@@ -55,7 +56,7 @@ public class ReferenceLabels {
         }
         try {
             return call.apply(distinct.stream().limit(MAX_IDS).toList());
-        } catch (RestClientException e) {
+        } catch (RestClientException | HttpMessageConversionException e) {
             log.atWarn().addKeyValue("relation", relation).setCause(e)
                     .log("Reference service did not answer; generic labels used");
             return Map.of();

@@ -13,7 +13,8 @@ public interface ReferenceClient {
     record PersonRef(Long id) {
     }
 
-    record AddressRef(Long id, Long personId) {
+    /** {@code person} is the owner's {@code {id, label}} summary. */
+    record AddressRef(Long id, PersonRef person) {
     }
 
     record ItemRef(Long id, String sku, String name, BigDecimal price) {
