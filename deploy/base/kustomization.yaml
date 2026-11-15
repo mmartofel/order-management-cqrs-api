@@ -1,5 +1,6 @@
 # Plain Kubernetes, valid on any cluster: no Route, Ingress, host, registry, namespace or secret value.
-# Secrets postgres-command, postgres-query and postgres-reference are created by deploy/ensure-secrets.sh.
+# Secrets (the three databases, keycloak-admin, order-management-oidc-client, order-management-demo-users) are created
+# by deploy/ensure-secrets.sh.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
@@ -10,3 +11,10 @@ resources:
   - reference-service.yaml
   - command-service.yaml
   - query-service.yaml
+  - keycloak.yaml
+  - gateway.yaml
+# A changed realm.json gets a new ConfigMap name, so Keycloak rolls out and imports it again.
+configMapGenerator:
+  - name: keycloak-realm
+    files:
+      - realm.json

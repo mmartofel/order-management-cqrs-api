@@ -1,4 +1,5 @@
-# Local dependencies of the three services: one PostgreSQL per service and Kafka.
+# Local dependencies of the services: one PostgreSQL per service, Kafka and Keycloak (realm "orders" from
+# deploy/base/realm.json).
 #   docker compose up -d --wait      (or: podman compose up -d --wait)
 services:
   command-db:
@@ -68,6 +69,27 @@ services:
       start_period: 20s
     volumes:
       - kafka:/var/lib/kafka/data
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.8.1
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      KC_HEALTH_ENABLED: "true"
+      # Fixed demo values for local development only; in a cluster they come from Secrets (deploy/ensure-secrets.sh).
+      ORDERS_API_CLIENT_SECRET: orders-api-secret
+      DEMO_VIEWER_PASSWORD: viewer
+      DEMO_EDITOR_PASSWORD: editor
+    volumes:
+      - ./deploy/base/realm.json:/opt/keycloak/data/import/realm.json:ro
+    ports:
+      - "8080:8080"
+    healthcheck:
+      # The image has no curl: ask /health/ready on the management port through /dev/tcp (sh is bash).
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && grep -q UP <&3"]
+      interval: 5s
+      start_period: 60s
 
 volumes:
   command-db:

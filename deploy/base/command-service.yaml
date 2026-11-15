@@ -12,6 +12,8 @@ data:
   SPRING_KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
   REFERENCE_BASE_URL: "http://reference-service:8082"
   AXONIQ_UPDATE_CHECKER_DISABLED: "true"
+  SERVER_PORT: "8080"
+  JWK_SET_URI: "http://keycloak:8080/realms/orders/protocol/openid-connect/certs"
 ---
 apiVersion: apps/v1
 kind: Deployment

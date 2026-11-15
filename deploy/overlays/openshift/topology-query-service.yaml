@@ -9,5 +9,6 @@ metadata:
   annotations:
     app.openshift.io/connects-to: >-
       [{"apiVersion":"apps/v1","kind":"Deployment","name":"postgres-query"},
-      {"apiVersion":"apps/v1","kind":"Deployment","name":"kafka"}]
+      {"apiVersion":"apps/v1","kind":"Deployment","name":"kafka"},
+      {"apiVersion":"apps/v1","kind":"Deployment","name":"keycloak"}]
     app.openshift.io/vcs-uri: https://github.com/mmartofel/order-management-cqrs-api
