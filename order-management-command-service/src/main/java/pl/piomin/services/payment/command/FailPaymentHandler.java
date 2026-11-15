@@ -10,8 +10,13 @@ import pl.piomin.services.payment.domain.Payment;
 @Component
 public class FailPaymentHandler {
 
+    /** @return the payment's version after the command */
     @CommandHandler
-    public void handle(FailPaymentCommand command, @InjectEntity Payment payment, EventAppender eventAppender) {
+    public long handle(FailPaymentCommand command, @InjectEntity Payment payment, EventAppender eventAppender) {
+        payment.requireVersion(command.version());
+        // computed before the append: Axon applies the appended event to the entity right away
+        long next = command.version() + 1;
         eventAppender.append(payment.fail(command.reason()));
+        return next;
     }
 }

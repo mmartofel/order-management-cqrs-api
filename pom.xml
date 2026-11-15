@@ -13,7 +13,7 @@
 
     <groupId>pl.piomin.services</groupId>
     <artifactId>order-management</artifactId>
-    <version>1.0.0</version>
+    <version>2.0.0</version>
     <packaging>pom</packaging>
     <name>order-management</name>
     <description>REST API for managing orders - CQRS and Event Sourcing with Axon Framework on PostgreSQL</description>
@@ -23,11 +23,14 @@
         <module>order-management-reference-service</module>
         <module>order-management-command-service</module>
         <module>order-management-query-service</module>
+        <!-- last: its test merges the contracts the services' tests export -->
+        <module>order-management-gateway</module>
     </modules>
 
     <properties>
         <java.version>21</java.version>
         <axon.version>5.4.1</axon.version>
+        <springdoc.version>3.2.0</springdoc.version>
         <jib.version>3.5.2</jib.version>
         <!-- runtime image for every service: Red Hat UBI 9 OpenJDK 21, non-root, runs under OpenShift's random UID -->
         <jib.base-image>registry.access.redhat.com/ubi9/openjdk-21-runtime:1.24</jib.base-image>
@@ -43,6 +46,11 @@
                 <scope>import</scope>
             </dependency>
             <dependency>
+                <groupId>org.springdoc</groupId>
+                <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+                <version>${springdoc.version}</version>
+            </dependency>
+            <dependency>
                 <groupId>pl.piomin.services</groupId>
                 <artifactId>order-management-events</artifactId>
                 <version>${project.version}</version>
@@ -53,6 +61,18 @@
     <build>
         <pluginManagement>
             <plugins>
+                <!-- build-info: BuildProperties for the contract's info.version and /actuator/info build.version -->
+                <plugin>
+                    <groupId>org.springframework.boot</groupId>
+                    <artifactId>spring-boot-maven-plugin</artifactId>
+                    <executions>
+                        <execution>
+                            <goals>
+                                <goal>build-info</goal>
+                            </goals>
+                        </execution>
+                    </executions>
+                </plugin>
                 <!-- builds the service images without a container engine; Skaffold drives it (skaffold.yaml) -->
                 <plugin>
                     <groupId>com.google.cloud.tools</groupId>

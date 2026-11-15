@@ -5,6 +5,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 import pl.piomin.services.config.EventRecord;
+import pl.piomin.services.order.domain.OrderStatus;
 import pl.piomin.services.order.domain.event.OrderCancelled;
 import pl.piomin.services.order.domain.event.OrderDelivered;
 import pl.piomin.services.order.domain.event.OrderEvent;
@@ -12,7 +13,6 @@ import pl.piomin.services.order.domain.event.OrderPaid;
 import pl.piomin.services.order.domain.event.OrderPlaced;
 import pl.piomin.services.order.domain.event.OrderShipped;
 import pl.piomin.services.order.query.OrderLineView;
-import pl.piomin.services.order.query.OrderStatus;
 import pl.piomin.services.order.query.OrderView;
 import pl.piomin.services.order.query.OrderViewRepository;
 

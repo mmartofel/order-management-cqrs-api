@@ -10,8 +10,13 @@ import pl.piomin.services.delivery.domain.Delivery;
 @Component
 public class CancelDeliveryHandler {
 
+    /** @return the delivery's version after the command */
     @CommandHandler
-    public void handle(CancelDeliveryCommand command, @InjectEntity Delivery delivery, EventAppender eventAppender) {
+    public long handle(CancelDeliveryCommand command, @InjectEntity Delivery delivery, EventAppender eventAppender) {
+        delivery.requireVersion(command.version());
+        // computed before the append: Axon applies the appended event to the entity right away
+        long next = command.version() + 1;
         eventAppender.append(delivery.cancel(command.reason()));
+        return next;
     }
 }

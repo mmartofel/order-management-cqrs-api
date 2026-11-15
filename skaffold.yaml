@@ -1,4 +1,4 @@
-# Builds the three service images with Jib (no container engine needed) and deploys deploy/overlays/<target>.
+# Builds the four images (three services and the gateway) with Jib (no container engine needed) and deploys deploy/overlays/<target>.
 #   skaffold run -p openshift --default-repo=<registry>/<org> -n <namespace>
 #   skaffold delete -p openshift -n <namespace>
 apiVersion: skaffold/v4beta13
@@ -19,6 +19,10 @@ build:
       jib:
         project: order-management-query-service
         args: ["-DskipTests"]          # tests run in ./mvnw verify and CI, not in every image build
+    - image: order-management-gateway
+      jib:
+        project: order-management-gateway
+        args: ["-DskipTests"]          # tests run in ./mvnw verify and CI, not in every image build
   tagPolicy:
     gitCommit: {}
 manifests:
@@ -32,19 +36,15 @@ deploy:
         - host:
             command: ["sh", "deploy/ensure-secrets.sh"]
             os: [darwin, linux]
-portForward:                       # local profile only
+portForward:                       # local profile only: what a UI on localhost needs (README "Connect a UI")
   - resourceType: service
-    resourceName: command-service
+    resourceName: keycloak
     port: 8080
     localPort: 8080
   - resourceType: service
-    resourceName: query-service
-    port: 8081
+    resourceName: order-management   # the gateway
+    port: 8080
     localPort: 8081
-  - resourceType: service
-    resourceName: reference-service
-    port: 8082
-    localPort: 8082
 profiles:
   - name: openshift
     patches:

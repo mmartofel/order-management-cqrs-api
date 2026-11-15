@@ -1,7 +1,13 @@
 # order-management-cqrs-api
 
 REST API for managing orders: **Person, Address, Item, Order, Payment, Delivery**, all persisted in PostgreSQL.
-Version 1.0.0.
+Version 2.0.0.
+
+The API is built for a web UI generated from its OpenAPI contract (`contract/openapi.json`) with
+[crud-ui-blueprint](https://github.com/mmartofel/crud-ui-blueprint), and follows that UI's contract,
+`docs/API-CONTRACT.md`. Persons, addresses and items are **CRUD resources** (its sections 2-9). Orders, payments and
+deliveries are **command resources** (section 11). The deployment follows `docs/DEPLOY-CONVENTION.md`. Both files
+are copied unchanged from the UI template.
 
 ## Repository layout
 
@@ -13,8 +19,12 @@ Version 1.0.0.
 ├── order-management-command-service/    # writes: Axon entities, command handlers, Kafka relay
 ├── order-management-query-service/      # reads: Kafka listeners, projections, read models, GET endpoints
 ├── order-management-reference-service/  # Person, Address, Item CRUD
-├── docker-compose.yml                   # local PostgreSQL x3 and Kafka
+├── order-management-gateway/            # one origin for the UI: routes by method, merged contract, health
+├── contract/openapi.json                # the merged contract the UI is generated from; CI checks it is current
+├── docker-compose.yml                   # local PostgreSQL x3, Kafka and Keycloak
 ├── deploy/, skaffold.yaml               # OpenShift / Kubernetes manifests (Kustomize) and image build + deploy
+├── docs/API-CONTRACT.md                 # the UI's contract rules, copied unchanged from crud-ui-blueprint
+├── docs/DEPLOY-CONVENTION.md            # the deployment shared with the UI repo, copied unchanged
 ├── docs/images/                         # pictures used in this README
 ├── .github/workflows/ci.yml             # build and test on every push and pull request
 └── CLAUDE.md                            # architecture decisions (style, scope, topology, event store)
@@ -30,35 +40,48 @@ command service, which stores events. The events reach a separate query service 
 service serves the reads. Person, Address and Item are reference data, kept as plain layered CRUD in their own service.
 
 ```
-            POST                       events (Kafka)                    GET
-client ───────────► command-service ────────────────────► query-service ◄──────── client
-                    :8080   │  Axon, event store            :8081  read models
-                            │  in PostgreSQL (orders_command)      in PostgreSQL (orders_query)
-                            │ validates person/address/item
-                            ▼
-                    reference-service :8082  Person, Address, Item (CRUD) in PostgreSQL (orders_reference)
+                    POST /api/{orders,payments,deliveries}[/{id}/<action>]
+              ┌──────────────────────────────────► command-service :8083 ──┐
+              │                                     Axon event store       │ events
+client ──► gateway :8081                                                   ▼ (Kafka)
+   │          │ GET /api/{orders,payments,deliveries}[/{id}]
+   │          ├──────────────────────────────────► query-service :8084, read models
+   │          │ /api/{persons,addresses,items}            │ labels
+   │          └──────────────────────────────────► reference-service :8082 ◄───┘
+   │                                                CRUD; the command service checks references here
+   └── bearer token from Keycloak :8080 (realm orders)
 ```
 
-| Module | Port | Database | Role |
-|---|---|---|---|
-| `order-management-events` | - | - | Event records; the contract between command and query services. No dependencies |
-| `order-management-command-service` | 8080 | `orders_command` (5432) | Axon event-sourced Order, Payment, Delivery; command endpoints; relays events to Kafka |
-| `order-management-query-service` | 8081 | `orders_query` (5433) | Kafka consumers, read models, `GET` endpoints |
-| `order-management-reference-service` | 8082 | `orders_reference` (5434) | CRUD for Person, Address, Item |
+The UI sees one origin, the gateway, and one contract. Commands and queries share their paths, so the gateway tells
+them apart by HTTP method. Every service checks the bearer token itself.
 
-Stack: Java 21, Spring Boot 4.1.2, Axon Framework 5.4.1, PostgreSQL 18, Apache Kafka 4.1, Flyway, Testcontainers.
+| Module | Port (local) | Database | Role |
+|---|---|---|---|
+| `order-management-events` | - | - | Event records, status enums and the actions rules; the contract between command and query services. No Spring |
+| `order-management-gateway` | 8081 | - | `GET` to the query service, other methods to the command service, reference data to the reference service; one health component per service; `contract/openapi.json` at `/v3/api-docs` |
+| `order-management-reference-service` | 8082 | `orders_reference` (5434) | CRUD for Person, Address, Item |
+| `order-management-command-service` | 8083 | `orders_command` (5432) | Axon event-sourced Order, Payment, Delivery; command endpoints; relays events to Kafka |
+| `order-management-query-service` | 8084 | `orders_query` (5433) | Kafka consumers, read models, `GET` endpoints |
+
+Keycloak listens on 8080, as for every API made for crud-ui-blueprint. In a cluster the services keep 8080 (command),
+8081 (query) and 8082 (reference), and the gateway is the Service `order-management` on 8080.
+
+Stack: Java 21, Spring Boot 4.1.2, Axon Framework 5.4.1, Spring Cloud Gateway Server Web MVC (Spring Cloud 2025.1.4),
+springdoc 3.2, Keycloak 26.8, PostgreSQL 18, Apache Kafka 4.1, Flyway, Testcontainers.
 
 ## Run locally
 
 Prerequisites: Java 21, and Docker or Podman. Maven comes with the wrapper.
 
-**1. Start the dependencies.** This starts three PostgreSQL databases (ports 5432, 5433, 5434) and Kafka (9092):
+**1. Start the dependencies.** This starts three PostgreSQL databases (ports 5432, 5433, 5434), Kafka (9092) and
+Keycloak (8080, realm `orders` from `deploy/base/realm.json`):
 
 ```bash
 docker compose up -d --wait          # or: podman compose up -d --wait
 ```
 
-**2. Build and test.** The tests start their own PostgreSQL and Kafka containers through Testcontainers:
+**2. Build and test.** The tests start their own PostgreSQL and Kafka containers through Testcontainers. The build
+also regenerates `contract/openapi.json`; commit it with every API change (CI fails when it is out of date):
 
 ```bash
 ./mvnw clean verify
@@ -74,15 +97,16 @@ export TESTCONTAINERS_RYUK_DISABLED=true
 **3. Start the services**, each in its own terminal. Flyway creates the tables on first start:
 
 ```bash
-java -jar order-management-reference-service/target/order-management-reference-service-1.0.0.jar   # :8082
-java -jar order-management-command-service/target/order-management-command-service-1.0.0.jar       # :8080
-java -jar order-management-query-service/target/order-management-query-service-1.0.0.jar           # :8081
+java -jar order-management-reference-service/target/order-management-reference-service-2.0.0.jar   # :8082
+java -jar order-management-command-service/target/order-management-command-service-2.0.0.jar       # :8083
+java -jar order-management-query-service/target/order-management-query-service-2.0.0.jar           # :8084
+java -jar order-management-gateway/target/order-management-gateway-2.0.0.jar                       # :8081
 ```
 
-Each service is ready when `curl localhost:<port>/actuator/health/readiness` returns `UP`. Then try the
-[example](#example) below.
+Each one is ready when `curl localhost:<port>/actuator/health/readiness` returns `UP`. Then try the
+[example](#example) below, against the gateway on 8081.
 
-**4. Stop.** Press `Ctrl+C` in each service's terminal, then remove the dependencies (`-v` also deletes the data):
+**4. Stop.** Press `Ctrl+C` in each terminal, then remove the dependencies (`-v` also deletes the data):
 
 ```bash
 docker compose down -v
@@ -94,21 +118,25 @@ All settings have local defaults that match `docker-compose.yml`. Override them 
 
 | Variable | Services | Default |
 |---|---|---|
-| `SPRING_DATASOURCE_URL` | all | `jdbc:postgresql://localhost:5432/orders_command` (command), `:5433/orders_query` (query), `:5434/orders_reference` (reference) |
-| `SPRING_DATASOURCE_USERNAME`, `SPRING_DATASOURCE_PASSWORD` | all | `orders` / `orders` (local only) |
+| `SPRING_DATASOURCE_URL` | command, query, reference | `jdbc:postgresql://localhost:5432/orders_command` (command), `:5433/orders_query` (query), `:5434/orders_reference` (reference) |
+| `SPRING_DATASOURCE_USERNAME`, `SPRING_DATASOURCE_PASSWORD` | command, query, reference | `orders` / `orders` (local only) |
 | `SPRING_KAFKA_BOOTSTRAP_SERVERS` | command, query | `localhost:9092` |
-| `SERVER_PORT` | all | 8080 command, 8081 query, 8082 reference |
-| `REFERENCE_BASE_URL` | command | `http://localhost:8082` |
+| `SERVER_PORT` | all | 8081 gateway, 8082 reference, 8083 command, 8084 query |
+| `JWK_SET_URI` | command, query, reference | `http://localhost:8080/realms/orders/protocol/openid-connect/certs` |
+| `REFERENCE_BASE_URL` | command, query | `http://localhost:8082` |
+| `COMMAND_SERVICE_URL`, `QUERY_SERVICE_URL`, `REFERENCE_SERVICE_URL` | gateway | `http://localhost:8083`, `:8084`, `:8082` |
 | `QUERY_CONSUMER_GROUP` | query | `order-management-query-service` |
 
 ## Run on OpenShift
 
 Everything runs in one OpenShift project. The manifests are in `deploy/` (Kustomize), and `skaffold.yaml` builds the
-three service images with Jib and deploys them:
+four images (three services and the gateway) with Jib and deploys them:
 
 | Component | Resources | Notes |
 |---|---|---|
-| `reference-service`, `command-service`, `query-service` | Deployment, Service, ConfigMap, Route | Image on `ubi9/openjdk-21-runtime`; probes on `/actuator/health/{liveness,readiness}` |
+| `order-management` (the gateway) | Deployment, Service, ConfigMap, Route | The API's one origin; the UI's nginx proxies `/api/` and `/actuator/{health,info}` to `http://order-management:8080` |
+| `reference-service`, `command-service`, `query-service` | Deployment, Service, ConfigMap | Image on `ubi9/openjdk-21-runtime`; probes on `/actuator/health/{liveness,readiness}`; no Route, reached through the gateway |
+| `keycloak` | Deployment, Service, ConfigMap (realm) | `keycloak:26.8.1`, realm `orders` imported from `deploy/base/realm.json`; no Route: the UI's host proxies the realm's public paths |
 | `postgres-command`, `postgres-query`, `postgres-reference` | Deployment, Service, PVC (1Gi) | `postgres:18`; credentials in the Secrets of the same name |
 | `kafka` | Deployment, Service, PVC (2Gi) | Single-node `apache/kafka:4.1.0` in KRaft mode; topics are created by the services |
 
@@ -121,11 +149,11 @@ to what it calls, and a Route link sits on each service:
 deploy/
   base/                   plain Kubernetes: Deployments, Services, ConfigMaps, PVCs, probes, resources
   overlays/
-    local/                local cluster (kind, minikube); Skaffold forwards ports 8080-8082
-    openshift/            + Routes (edge TLS, host generated by OpenShift) and Topology runtime icons
+    local/                local cluster (kind, minikube); Skaffold forwards Keycloak to 8080 and the gateway to 8081
+    openshift/            + a Route for the gateway (edge TLS, host generated by OpenShift) and Topology icons
   environments/
     example/              how an environment overlay looks; real ones (deploy/environments/<env>) are git-ignored
-  ensure-secrets.sh       Skaffold before-deploy hook: creates the missing database Secrets
+  ensure-secrets.sh       Skaffold before-deploy hook: creates the missing Secrets
 skaffold.yaml
 ```
 
@@ -146,7 +174,7 @@ oc login --server=<api-url> ...                       # or a token from the web 
 oc new-project order-management                       # or: oc project <existing>
 ./mvnw install -DskipTests                            # Skaffold builds the images from the installed modules
 skaffold run -p openshift --default-repo=<registry>/<org> -n order-management
-oc get route                                          # the generated hosts of the three services
+oc get route order-management                         # the gateway's generated host
 # optional: the version label, set at deploy time and never in a file
 skaffold run -p openshift --default-repo=quay.io/<org> -n order-management --label app.kubernetes.io/version=$(git rev-parse --short HEAD)
 ```
@@ -160,11 +188,14 @@ skaffold run -p openshift --default-repo=quay.io/<org> -n order-management --lab
   ```
   A robot account usually cannot create repositories. Create them in Quay first, and make them public or give the
   namespace a pull secret, otherwise the pods stay in `ImagePullBackOff`:
-  `order-management-reference-service`, `order-management-command-service`, `order-management-query-service`.
+  `order-management-reference-service`, `order-management-command-service`, `order-management-query-service`,
+  `order-management-gateway`.
   Skaffold's warning `Could not get docker context` is harmless.
 - **Secrets:** on the first deploy, `deploy/ensure-secrets.sh` creates `postgres-command`, `postgres-query` and
-  `postgres-reference`, with user `orders` and a random password. It never changes an existing Secret, because
-  PostgreSQL keeps the password of its first start. No secret value is in git.
+  `postgres-reference` (user `orders`, random password), `keycloak-admin` and `order-management-oidc-client` (random),
+  and `order-management-demo-users` (`viewer`/`editor`, or `DEMO_VIEWER_PASSWORD`/`DEMO_EDITOR_PASSWORD` when set,
+  which a publicly reachable cluster should do). It never changes an existing Secret, because PostgreSQL keeps the
+  password of its first start. No secret value is in git.
 - **Security:** every container runs under OpenShift's `restricted-v2` SCC, with a random UID and no root. The Kafka
   image needs a writable config folder for that: an init container copies it into an `emptyDir`.
 - **Topology:** in the Developer console the stack is the `order-management` group (see the picture above). It shows
@@ -176,44 +207,67 @@ skaffold run -p openshift --default-repo=quay.io/<org> -n order-management --lab
   `oc delete secret -l app.kubernetes.io/part-of=order-management`. To redeploy and keep the data, run
   `skaffold run` again instead.
 
-Then use the [example](#example) below with the Route hosts instead of `localhost:<port>`.
+Then use the [example](#example) below with the gateway's Route host instead of `localhost:8081`, or deploy the UI
+next to it ([Connect a UI](#connect-a-ui)).
 
 ## API
 
-Base path `/api/v1` on every service. **Writes go to the command service (8080), reads to the query service (8081)**,
-on the same resource paths. Errors are RFC 9457 Problem Details (`application/problem+json`). Validation errors list
-the fields in `errors[]` with a stable `code` (`required`, `email`, `unique`, `invalid`).
+Base path `/api`, served by the gateway on one origin. Every endpoint needs a bearer token from Keycloak realm
+`orders`: reads need `orders-viewer` or `orders-editor`, writes need `orders-editor`. `/actuator/health`,
+`/actuator/info` and `/v3/api-docs` (the merged contract) are public. The method names below are the operationIds
+of the contract.
 
-### Reference data - `:8082`
+Errors are RFC 9457 Problem Details (`application/problem+json`). Field errors are in `errors[]` with a stable
+`code`: `required`, `email`, `unique`, `invalid`, `not-found` (an unknown reference, on the field that holds it),
+`in-use` and `invalid-state` (both without `field`). A **409 without `errors`** always means a stale `version`: reload
+and decide again.
 
-| Method | Path | Notes |
-|---|---|---|
-| `GET` | `/persons`, `/addresses?personId=`, `/items` | Paged: `?page=&size=&sort=` (max size 100) |
-| `GET` | `/persons/{id}`, `/addresses/{id}`, `/items/{id}` | 404 if unknown |
-| `POST` | `/persons`, `/addresses`, `/items` | 201 + `Location`; 409 for a duplicate email or SKU; 422 for an address of an unknown person |
-| `PUT` | `/persons/{id}`, `/addresses/{id}`, `/items/{id}` | Full replace with the `version` last read; 409 if stale |
-| `DELETE` | `/persons/{id}`, `/addresses/{id}`, `/items/{id}` | 204; 409 while a person still has addresses |
+### Reference data: CRUD resources
 
-### Commands - `:8080`
-
-Every command returns `{"id": "<uuid>"}`. A creating command returns **201**; the others return **202**.
-
-| Method | Path | Body | Rule |
+| Method | Path | operationIds | Notes |
 |---|---|---|---|
-| `POST` | `/orders` | `{personId, addressId, lines: [{itemId, quantity}]}` | Person, address (of that person) and items must exist (else **422**); item name and price are copied into the order |
-| `POST` | `/orders/{id}/cancel` | `{reason}` | Only PLACED or PAID orders |
-| `POST` | `/payments` | `{orderId, amount, method}` | Order PLACED, amount = order total; method `CARD`, `TRANSFER`, `BLIK` or `CASH_ON_DELIVERY` |
-| `POST` | `/payments/{id}/complete` | `{transactionReference}` | Also marks the order **PAID**, in the same transaction |
-| `POST` | `/payments/{id}/fail` | `{reason}` | Order stays PLACED; a new payment can be started |
-| `POST` | `/payments/{id}/refund` | `{reason}` | Only a completed payment of a cancelled order |
-| `POST` | `/deliveries` | `{orderId, carrier, scheduledFor}` | Order PAID; delivered to the order's address |
-| `POST` | `/deliveries/{id}/ship` | `{trackingNumber}` | Also marks the order **SHIPPED** |
-| `POST` | `/deliveries/{id}/complete` | - | Also marks the order **DELIVERED** |
-| `POST` | `/deliveries/{id}/cancel` | `{reason}` | Only a scheduled delivery; the order stays PAID |
+| `GET` | `/api/persons`, `/api/addresses`, `/api/items` | `listPersons`, `listAddresses`, `listItems` | Paged `?page=&size=&sort=` (max size 100); `q` searches names, e-mail, street, city, SKU; filters `personId` (addresses) and `ids` |
+| `GET` | `/api/persons/{id}`, ... | `getPerson`, `getAddress`, `getItem` | 404 if unknown. An address has `person: {id, label}` |
+| `POST` | `/api/persons`, ... | `createPerson`, `createAddress`, `createItem` | 201 + `Location`; 409 `unique` for a duplicate email or SKU; 400 `not-found` for an address of an unknown person |
+| `PUT` | `/api/persons/{id}`, ... | `updatePerson`, `updateAddress`, `updateItem` | Full replace with the `version` last read; 409 if stale |
+| `DELETE` | `/api/persons/{id}`, ... | `deletePerson`, `deleteAddress`, `deleteItem` | 204; 409 `in-use` while a person still has addresses |
 
-Status codes: **400** validation, **404** unknown order/payment/delivery, **409** a rule of the current state is
-broken (for example shipping an unpaid order), or another request changed the same aggregate at the same time (retry),
-**422** an unknown person, address, item or order is referenced, **503** the reference service is unreachable.
+### Orders, payments, deliveries: command resources
+
+There is no `PUT` and no `DELETE`. A create returns **201** and an action returns **202**, both with
+`{"id": "<uuid>", "version": <n>}`: the aggregate's version after the command. Every action body carries the
+`version` the client last read.
+
+| Method | Path | operationId | Body | Rule |
+|---|---|---|---|---|
+| `POST` | `/api/orders` | `createOrder` | `{personId, addressId, lines: [{itemId, quantity}]}` | Person, address (of that person) and items must exist, else 400 `not-found` on the field (`lines[1].itemId`); item name and price are copied into the order |
+| `POST` | `/api/orders/{id}/cancel` | `cancelOrder` | `{reason, version}` | Only PLACED or PAID orders |
+| `POST` | `/api/payments` | `createPayment` | `{orderId, amount, method}` | Order PLACED, amount = order total; method `CARD`, `TRANSFER`, `BLIK` or `CASH_ON_DELIVERY` |
+| `POST` | `/api/payments/{id}/complete` | `completePayment` | `{transactionReference, version}` | Also marks the order **PAID**, in the same transaction |
+| `POST` | `/api/payments/{id}/fail` | `failPayment` | `{reason, version}` | Order stays PLACED; a new payment can be started |
+| `POST` | `/api/payments/{id}/refund` | `refundPayment` | `{reason, version}` | Only a completed payment of a cancelled order |
+| `POST` | `/api/deliveries` | `createDelivery` | `{orderId, carrier, scheduledFor}` | Order PAID; delivered to the order's address |
+| `POST` | `/api/deliveries/{id}/ship` | `shipDelivery` | `{trackingNumber, version}` | Also marks the order **SHIPPED** |
+| `POST` | `/api/deliveries/{id}/complete` | `completeDelivery` | `{version}` | Also marks the order **DELIVERED** |
+| `POST` | `/api/deliveries/{id}/cancel` | `cancelDelivery` | `{reason, version}` | Only a scheduled delivery; the order stays PAID |
+
+Status codes: **400** validation or an unknown reference (`not-found`), **403** without `orders-editor`, **404**
+unknown order, payment or delivery, **409 without `errors`** a stale `version` (or another command changed the
+aggregate at the same moment), **409 `invalid-state`** the current state does not allow the command (for example
+shipping an unpaid order), **503** the reference service is unreachable.
+
+| Method | Path | operationId | Notes |
+|---|---|---|---|
+| `GET` | `/api/orders?q=&personId=&status=` | `listOrders` | Paged summaries; `q` searches item names and SKUs |
+| `GET` | `/api/orders/{id}` | `getOrder` | Order with lines, payments and deliveries |
+| `GET` | `/api/payments?q=&orderId=&status=`, `/api/payments/{id}` | `listPayments`, `getPayment` | `q` searches the transaction reference |
+| `GET` | `/api/deliveries?q=&orderId=&status=`, `/api/deliveries/{id}` | `listDeliveries`, `getDelivery` | `q` searches carrier and tracking number |
+
+Every read carries `status`, `version` (the sequence number of the aggregate's last applied event, 0 = created) and
+`allowedActions`: the action path segments the current user may run now, for example `["cancel"]`. A viewer gets
+`[]`. The rules come from one place, `OrderActions`, `PaymentActions` and `DeliveryActions` in the events module, and
+a test checks them against the aggregates. Orders have `person` and `address` as `{id, label}`; payments and
+deliveries have `order: {id, label}`, deliveries also `address`.
 
 State machines:
 
@@ -223,37 +277,33 @@ Payment   INITIATED ─► COMPLETED ─► REFUNDED              INITIATED ─�
 Delivery  SCHEDULED ─► SHIPPED ─► DELIVERED               SCHEDULED ─► CANCELLED
 ```
 
-### Queries - `:8081`
-
-| Method | Path | Notes |
-|---|---|---|
-| `GET` | `/orders?personId=&status=` | Paged order summaries |
-| `GET` | `/orders/{id}` | Order with lines, payments and deliveries |
-| `GET` | `/payments?orderId=`, `/payments/{id}` | |
-| `GET` | `/deliveries?orderId=`, `/deliveries/{id}` | |
-
-Every response carries `version`: the sequence number of the aggregate's last applied event (0 = created).
-
 ### Example
 
 ```bash
-curl -XPOST localhost:8082/api/v1/persons -H 'Content-Type: application/json' \
-     -d '{"firstName":"Anna","lastName":"Nowak","email":"anna@example.com"}'
-curl -XPOST localhost:8082/api/v1/addresses -H 'Content-Type: application/json' \
-     -d '{"personId":1,"street":"Marszalkowska 1","city":"Warsaw","postalCode":"00-001","country":"PL"}'
-curl -XPOST localhost:8082/api/v1/items -H 'Content-Type: application/json' -d '{"sku":"MUG-1","name":"Mug","price":19.99}'
+TOKEN=$(curl -s -d grant_type=client_credentials -d client_id=orders-api -d client_secret=orders-api-secret \
+        localhost:8080/realms/orders/protocol/openid-connect/token | jq -r .access_token)
+api() { curl -s -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' "$@"; }
 
-curl -XPOST localhost:8080/api/v1/orders -H 'Content-Type: application/json' \
-     -d '{"personId":1,"addressId":1,"lines":[{"itemId":1,"quantity":2}]}'          # -> {"id":"<order>"}
-curl localhost:8081/api/v1/orders/<order>                                            # PLACED, total 39.98
+api localhost:8081/api/persons   -d '{"firstName":"Anna","lastName":"Nowak","email":"anna@example.com"}'
+api localhost:8081/api/addresses -d '{"personId":1,"street":"Marszalkowska 1","city":"Warsaw","postalCode":"00-001","country":"PL"}'
+api localhost:8081/api/items     -d '{"sku":"MUG-1","name":"Mug","price":19.99}'
+
+api localhost:8081/api/orders -d '{"personId":1,"addressId":1,"lines":[{"itemId":1,"quantity":2}]}'  # {"id":"<order>","version":0}
+api localhost:8081/api/orders/<order>       # PLACED, total 39.98, person "Anna Nowak", allowedActions ["cancel"]
+api localhost:8081/api/orders/<order>/cancel -d '{"reason":"changed my mind","version":0}'          # 202, version 1
 ```
+
+`orders-api` is the realm's confidential client for scripts and smoke tests, with `orders-editor`; its secret is
+`orders-api-secret` in Docker Compose and random in a cluster (Secret `order-management-oidc-client`).
 
 ## Eventual consistency
 
-**Queries are eventually consistent.** A `GET` on the query service right after a command may still show the old
-state for a short time, typically well under a second, while the event travels through Kafka. A client that
-needs its own write should poll until `version` has moved or the expected `status` shows up. The command service
-itself is strongly consistent: rules are always checked against the full event history.
+**Queries are eventually consistent.** Right after a command, a `GET` may still return the old state, or 404 after a
+create, for a short time while the event travels through Kafka (about 100-400 ms on a laptop). Every command returns
+`{id, version}`, and every read returns the `version` of the last event applied, so a client reads until the
+response's `version` is at least the command's. The UI does exactly that: it retries for about 5 seconds, then shows
+"still processing" and keeps reading. The command service itself is strongly consistent: rules are always checked
+against the full event history.
 
 ## How it works
 
@@ -304,9 +354,30 @@ contract between the services, so it bumps the version.
 
 Events hold **no personal data**. They reference people and addresses by id only (`personId`, `addressId`).
 Names, e-mail addresses, phone numbers and street addresses exist only in the reference service, where they can
-be updated or deleted. **To erase a person:** delete their addresses and then the person in the reference service.
-The immutable order history keeps only ids that no longer resolve. Payment events carry the payment method name
-and a transaction reference, never card or account numbers.
+be updated or deleted. The query service shows them as `person` and `address` `{id, label}` by asking the reference
+service when it builds a response (one call per relation and page, with the caller's token), and never stores them.
+**To erase a person:** delete their addresses and then the person in the reference service. Orders then show
+"Person 7" and "Address 3" instead of the name. Payment events carry the payment method name and a transaction
+reference, never card or account numbers.
+
+## Connect a UI
+
+`.env.local` of a crud-ui-blueprint UI for this API's local stack:
+```
+VITE_OIDC_AUTHORITY=http://localhost:8080/realms/orders
+VITE_OIDC_CLIENT_ID=orders-ui
+VITE_OIDC_ROLES_CLAIM=realm_access.roles
+API_PROXY_TARGET=http://localhost:8081
+CONTRACT_SOURCE=../order-management-cqrs-api/contract/openapi.json
+E2E_WRITER_USER=editor
+E2E_WRITER_PASSWORD=editor
+E2E_READER_USER=viewer
+E2E_READER_PASSWORD=viewer
+```
+Read role `orders-viewer`, write role `orders-editor` (realm roles in `realm_access.roles`). The UI footer reads the
+public `/actuator/health` (one component per service: `commandService`, `queryService`, `referenceService`) and
+`/actuator/info` (`build.version`) of the gateway. Orders, payments and deliveries are command resources: the UI
+needs a crud-ui-blueprint release that supports them (its `docs/API-CONTRACT.md` section 11).
 
 ## Schema
 
@@ -324,20 +395,36 @@ it on, start with `-Daxoniq.update-checker.disabled=false` or `AXONIQ_UPDATE_CHE
 
 ## Tests
 
-`./mvnw clean verify` runs 57 tests against real PostgreSQL and Kafka containers:
+`./mvnw clean verify` runs 95 tests, against real PostgreSQL and Kafka containers where they need them:
 
-- **reference service (18)**: CRUD, validation (400), not found (404), duplicate email or SKU (409), stale `version`
-  (409), delete while referenced (409), bad sort (400), all migrations applied.
-- **command service (19 + 10)**: Axon test fixture, given events → when command → then events, for every handler,
-  including rejected transitions that append nothing. Also an integration test of the REST endpoints with the
-  records on the Kafka topics, 400/404/409/422, and that a rejected command stores nothing. The reference service
-  is mocked.
-- **query service (10)**: events published to Kafka → read models and `GET` endpoints, redelivered and older events
-  skipped, unknown event type skipped, unknown payload field tolerated, a broken record dead-lettered, 400/404.
+- **reference service (22)**: CRUD, validation (400), 400 `not-found` for an unknown person, not found (404),
+  duplicate email or SKU (409 `unique`), stale `version` (409), delete while referenced (409 `in-use`), search and
+  `ids`, viewer cannot write (403), public status endpoints, the contract export.
+- **command service (47)**: the Axon test fixture, given events → when command → then events, for every handler,
+  including rejected transitions and a stale version that append nothing (20). The actions agreement test: every
+  action against the aggregates in every status, against `OrderActions`, `PaymentActions`, `DeliveryActions` (13). An
+  integration test of the endpoints with the records on the Kafka topics, `{id, version}`, 400 `not-found` on the
+  field, 409 with and without `invalid-state`, 403 for a viewer, the contract export (13). A check that the reference
+  client reads only fields the reference service's contract has (1).
+- **query service (19)**: events published to Kafka → read models and endpoints, labels and their fallback,
+  `allowedActions` by status and role, search, redelivered and older events skipped, unknown event type skipped,
+  unknown payload field tolerated, a broken record dead-lettered, 400/401/404, the contract export (15). The real
+  reference client against responses shaped like the reference service's (3), and its fields against that service's
+  contract (1).
+- **gateway (7)**: routing by method and path against three stub services, the token and `X-Forwarded-Host` passed
+  on, health with one component per service, `build.version` (6). The contract merge into `contract/openapi.json`,
+  which fails on a path or a schema two services define differently (1).
 
-CI: `.github/workflows/ci.yml` runs `./mvnw -B clean verify` on every push and pull request.
+The services' tests export their contracts to `target/openapi.json`, and the gateway, the reactor's last module,
+merges them. CI (`.github/workflows/ci.yml`) renders every deploy overlay, runs `./mvnw -B clean verify`, and fails
+when the committed `contract/openapi.json` is out of date.
 
 ## Versioning
 
-Semantic versioning, starting at `1.0.0`. All modules share the parent's version. A change to an event record or to
-an endpoint is a contract change and bumps it.
+Semantic versioning. All modules share the parent's version, and the contract's `info.version` is that version. A
+change to an event record or to an endpoint is a contract change and bumps it, a breaking one bumps the major.
+
+- **2.0.0:** built for crud-ui-blueprint. Base path `/api`; command resources with `{id, version}`, a `version` in
+  every action and `allowedActions` in every read; 400 `not-found` instead of 422; `person` and `address` as
+  `{id, label}`; OAuth2 with Keycloak; the gateway and the merged contract.
+- **1.0.0:** CQRS and Event Sourcing with Axon on PostgreSQL, Kafka between the services.

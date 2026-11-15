@@ -4,6 +4,7 @@ import org.axonframework.eventsourcing.annotation.EventSourcingHandler;
 import org.axonframework.eventsourcing.annotation.reflection.EntityCreator;
 import org.axonframework.extension.spring.stereotype.EventSourced;
 import pl.piomin.services.exception.BusinessRuleViolationException;
+import pl.piomin.services.exception.StaleVersionException;
 import pl.piomin.services.payment.domain.event.PaymentCompleted;
 import pl.piomin.services.payment.domain.event.PaymentEvent;
 import pl.piomin.services.payment.domain.event.PaymentFailed;
@@ -19,6 +20,8 @@ public class Payment {
     private UUID id;
     private UUID orderId;
     private PaymentStatus status;
+    /** Sequence number of the last event applied: 0 after the creating event, as in the event store. */
+    private long version = -1;
 
     @EntityCreator
     public Payment() {
@@ -48,6 +51,7 @@ public class Payment {
 
     @EventSourcingHandler
     void on(PaymentInitiated event) {
+        this.version++;
         this.id = event.paymentId();
         this.orderId = event.orderId();
         this.status = PaymentStatus.INITIATED;
@@ -55,16 +59,19 @@ public class Payment {
 
     @EventSourcingHandler
     void on(PaymentCompleted event) {
+        this.version++;
         this.status = PaymentStatus.COMPLETED;
     }
 
     @EventSourcingHandler
     void on(PaymentFailed event) {
+        this.version++;
         this.status = PaymentStatus.FAILED;
     }
 
     @EventSourcingHandler
     void on(PaymentRefunded event) {
+        this.version++;
         this.status = PaymentStatus.REFUNDED;
     }
 
@@ -78,5 +85,16 @@ public class Payment {
 
     public PaymentStatus status() {
         return status;
+    }
+
+    public long version() {
+        return version;
+    }
+
+    /** 409 without field errors when the client did not see the current version: it has to reload first. */
+    public void requireVersion(long expected) {
+        if (expected != version) {
+            throw new StaleVersionException("Payment " + id + " is at version " + version + ", not " + expected);
+        }
     }
 }

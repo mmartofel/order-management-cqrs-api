@@ -7,7 +7,7 @@
     <parent>
         <groupId>pl.piomin.services</groupId>
         <artifactId>order-management</artifactId>
-        <version>1.0.0</version>
+        <version>2.0.0</version>
     </parent>
 
     <artifactId>order-management-query-service</artifactId>
@@ -29,7 +29,20 @@
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-security-oauth2-resource-server</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springdoc</groupId>
+            <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
+        <!-- labels of people and addresses from the reference service -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-restclient</artifactId>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>

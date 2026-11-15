@@ -10,6 +10,9 @@ metadata:
 data:
   SPRING_DATASOURCE_URL: "jdbc:postgresql://postgres-query:5432/orders_query"
   SPRING_KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
+  SERVER_PORT: "8081"
+  JWK_SET_URI: "http://keycloak:8080/realms/orders/protocol/openid-connect/certs"
+  REFERENCE_BASE_URL: "http://reference-service:8082"
 ---
 apiVersion: apps/v1
 kind: Deployment

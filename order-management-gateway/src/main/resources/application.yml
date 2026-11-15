@@ -1,0 +1,63 @@
+spring:
+  application:
+    name: order-management-gateway
+  threads:
+    virtual:
+      enabled: true
+  cloud:
+    # no service discovery: the routes name the services' URLs; without this, health shows an UNKNOWN component
+    discovery:
+      enabled: false
+    gateway:
+      server:
+        webmvc:
+          # X-Forwarded-* go to the services only for callers from these addresses (private networks and loopback:
+          # the UI's nginx and the Route's router inside the cluster, curl on a laptop). The services build Location
+          # headers from them, so a client sees the gateway's host, not a service's.
+          trusted-proxies: '10\..*|172\.(1[6-9]|2[0-9]|3[01])\..*|192\.168\..*|127\..*|0:0:0:0:0:0:0:1|::1'
+          # Commands and queries share their paths, so reads and writes are told apart by method. The services check
+          # the bearer token themselves; the gateway passes the Authorization header on unchanged.
+          routes:
+            - id: queries
+              uri: ${services.query-url}
+              predicates:
+                - Path=/api/orders/**,/api/payments/**,/api/deliveries/**
+                - Method=GET
+            - id: commands
+              uri: ${services.command-url}
+              predicates:
+                - Path=/api/orders/**,/api/payments/**,/api/deliveries/**
+            - id: reference-data
+              uri: ${services.reference-url}
+              predicates:
+                - Path=/api/persons/**,/api/addresses/**,/api/items/**
+
+services:
+  command-url: ${COMMAND_SERVICE_URL:http://localhost:8083}
+  query-url: ${QUERY_SERVICE_URL:http://localhost:8084}
+  reference-url: ${REFERENCE_SERVICE_URL:http://localhost:8082}
+  health-timeout: 2s
+
+server:
+  port: ${SERVER_PORT:8081}
+  shutdown: graceful
+
+management:
+  health:
+    # Spring Cloud's refresh scope is not used; keep the footer's component list to the services
+    refresh:
+      enabled: false
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      # one component per service behind the gateway, so the UI footer can say which part is down
+      show-components: always
+      probes:
+        enabled: true
+      group:
+        # a service that is down must not take the gateway out of the Service: it still answers the others
+        readiness:
+          include: readinessState

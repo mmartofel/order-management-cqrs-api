@@ -1,5 +1,7 @@
 package pl.piomin.services;
 
+import com.jayway.jsonpath.DocumentContext;
+import com.jayway.jsonpath.JsonPath;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
@@ -7,42 +9,55 @@ import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.kafka.common.utils.Utils;
 import org.flywaydb.core.Flyway;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureRestTestClient;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.HttpHeaders;
 import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.client.RestTestClient;
 import org.testcontainers.kafka.KafkaContainer;
+import pl.piomin.services.api.Reference;
 import pl.piomin.services.config.EventRecord;
 import pl.piomin.services.delivery.domain.event.DeliveryEvent;
 import pl.piomin.services.delivery.domain.event.DeliveryScheduled;
 import pl.piomin.services.delivery.domain.event.DeliveryShipped;
+import pl.piomin.services.order.domain.OrderStatus;
 import pl.piomin.services.order.domain.event.OrderEvent;
 import pl.piomin.services.order.domain.event.OrderLine;
 import pl.piomin.services.order.domain.event.OrderPaid;
 import pl.piomin.services.order.domain.event.OrderPlaced;
 import pl.piomin.services.order.domain.event.OrderShipped;
 import pl.piomin.services.order.query.OrderResponse;
-import pl.piomin.services.order.query.OrderStatus;
+import pl.piomin.services.payment.domain.PaymentStatus;
 import pl.piomin.services.payment.domain.event.PaymentCompleted;
 import pl.piomin.services.payment.domain.event.PaymentEvent;
 import pl.piomin.services.payment.domain.event.PaymentInitiated;
-import pl.piomin.services.payment.query.PaymentStatus;
+import pl.piomin.services.reference.ReferenceClient.AddressRef;
+import pl.piomin.services.reference.ReferenceClient.PersonRef;
+import pl.piomin.services.reference.ReferenceClient;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
+import static org.mockito.ArgumentMatchers.anyCollection;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.Mockito.when;
 
 /**
  * Publishes event records the way the command service's relay does (key = aggregate id, headers event-type, event-id,
@@ -50,7 +65,7 @@ import static org.awaitility.Awaitility.await;
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureRestTestClient
-@Import(TestcontainersConfig.class)
+@Import({TestcontainersConfig.class, TestJwtConfig.class})
 class ProjectionIntegrationTest {
 
     private static final Instant NOW = Instant.parse("2026-11-15T10:00:00Z");
@@ -69,6 +84,20 @@ class ProjectionIntegrationTest {
 
     @Autowired
     Flyway flyway;
+
+    @MockitoBean
+    ReferenceClient referenceClient;
+
+    @BeforeEach
+    void editorAndReferenceData() {
+        client = client.mutate().defaultHeader(HttpHeaders.AUTHORIZATION, TestJwtConfig.EDITOR_TOKEN).build();
+        when(referenceClient.persons(anyCollection(), anyInt())).thenAnswer(call -> paged(
+                call.<Collection<Long>>getArgument(0).stream().filter(id -> id == 7L)
+                        .map(id -> new PersonRef(id, "Anna", "Nowak")).toList()));
+        when(referenceClient.addresses(anyCollection(), anyInt())).thenAnswer(call -> paged(
+                call.<Collection<Long>>getArgument(0).stream().filter(id -> id == 2L)
+                        .map(id -> new AddressRef(id, "Marszalkowska 1", "00-001", "Warsaw")).toList()));
+    }
 
     @Test
     void migrations_allApplied() {
@@ -100,13 +129,23 @@ class ProjectionIntegrationTest {
                     assertThat(line.quantity()).isEqualTo(2);
                 });
         assertThat(order.version()).isEqualTo(2);
+        assertThat(order.person()).isEqualTo(new Reference(7L, "Anna Nowak"));
+        assertThat(order.address()).isEqualTo(new Reference(2L, "Marszalkowska 1, 00-001 Warsaw"));
+        assertThat(order.allowedActions()).isEmpty();
+        assertThat(order.deliveries().getFirst().allowedActions()).containsExactly("complete");
 
-        client.get().uri("/api/v1/payments/{id}", paymentId).exchange()
+        client.get().uri("/api/payments/{id}", paymentId).exchange()
                 .expectStatus().isOk()
-                .expectBody().jsonPath("$.transactionReference").isEqualTo("TX-1");
-        client.get().uri("/api/v1/deliveries?orderId={id}", orderId).exchange()
+                .expectBody()
+                .jsonPath("$.transactionReference").isEqualTo("TX-1")
+                .jsonPath("$.method").isEqualTo("CARD")
+                .jsonPath("$.order.id").isEqualTo(orderId.toString())
+                .jsonPath("$.allowedActions").isEmpty();
+        client.get().uri("/api/deliveries?orderId={id}", orderId).exchange()
                 .expectStatus().isOk()
-                .expectBody().jsonPath("$.content[0].status").isEqualTo("SHIPPED");
+                .expectBody()
+                .jsonPath("$.content[0].status").isEqualTo("SHIPPED")
+                .jsonPath("$.content[0].address.label").isEqualTo("Marszalkowska 1, 00-001 Warsaw");
     }
 
     @Test
@@ -187,7 +226,7 @@ class ProjectionIntegrationTest {
         awaitOrder(paidOrder, o -> o.status() == OrderStatus.PAID);
         awaitOrder(placedOrder, o -> true);
 
-        client.get().uri("/api/v1/orders?personId={p}&status=PAID&size=10", personId).exchange()
+        client.get().uri("/api/orders?personId={p}&status=PAID&size=10", personId).exchange()
                 .expectStatus().isOk()
                 .expectBody()
                 .jsonPath("$.page.totalElements").isEqualTo(1)
@@ -196,26 +235,111 @@ class ProjectionIntegrationTest {
 
     @Test
     void getOrder_unknownId_returns404ProblemDetail() {
-        client.get().uri("/api/v1/orders/{id}", UUID.randomUUID()).exchange()
+        client.get().uri("/api/orders/{id}", UUID.randomUUID()).exchange()
                 .expectStatus().isNotFound()
                 .expectBody().jsonPath("$.status").isEqualTo(404);
     }
 
     @Test
     void getOrder_malformedId_returns400() {
-        client.get().uri("/api/v1/orders/not-a-uuid").exchange().expectStatus().isBadRequest();
+        client.get().uri("/api/orders/not-a-uuid").exchange().expectStatus().isBadRequest();
     }
 
     @Test
     void listOrders_unknownStatusOrSort_returns400() {
-        client.get().uri("/api/v1/orders?status=LOST").exchange().expectStatus().isBadRequest();
-        client.get().uri("/api/v1/orders?sort=nope").exchange().expectStatus().isBadRequest();
+        client.get().uri("/api/orders?status=LOST").exchange()
+                .expectStatus().isBadRequest()
+                .expectBody()
+                .jsonPath("$.errors[0].field").isEqualTo("status")
+                .jsonPath("$.errors[0].code").isEqualTo("invalid");
+        client.get().uri("/api/orders?sort=nope").exchange().expectStatus().isBadRequest();
+    }
+
+    @Test
+    void listOrders_searchByItemName_findsTheOrder() {
+        UUID orderId = UUID.randomUUID();
+        publishOrder(new OrderPlaced(orderId, 7L, 2L, List.of(new OrderLine(11L, "SKU-11", "Teapot_100%", 1,
+                new BigDecimal("50.00"))), new BigDecimal("50.00"), NOW), 0);
+        awaitOrder(orderId, o -> true);
+
+        client.get().uri("/api/orders?q=teapot_100%").exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.page.totalElements").isEqualTo(1)
+                .jsonPath("$.content[0].id").isEqualTo(orderId.toString())
+                .jsonPath("$.content[0].person.label").isEqualTo("Anna Nowak");
+        client.get().uri("/api/orders?q=teapot_100x").exchange()
+                .expectStatus().isOk()
+                .expectBody().jsonPath("$.page.totalElements").isEqualTo(0);
+    }
+
+    @Test
+    void allowedActions_followStatusAndRole() {
+        UUID orderId = UUID.randomUUID();
+        UUID paymentId = UUID.randomUUID();
+        publishOrder(placed(orderId, 7L), 0);
+        publishPayment(new PaymentInitiated(paymentId, orderId, new BigDecimal("39.98"), "CARD"), 0);
+        OrderResponse order = awaitOrder(orderId, o -> !o.payments().isEmpty());
+
+        assertThat(order.allowedActions()).containsExactly("cancel");
+        assertThat(order.payments().getFirst().allowedActions()).containsExactlyInAnyOrder("complete", "fail");
+
+        client.mutate().defaultHeader(HttpHeaders.AUTHORIZATION, TestJwtConfig.VIEWER_TOKEN).build()
+                .get().uri("/api/orders/{id}", orderId).exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.allowedActions").isEmpty()
+                .jsonPath("$.payments[0].allowedActions").isEmpty();
+    }
+
+    @Test
+    void personUnknownToReferenceService_getsGenericLabel() {
+        UUID orderId = UUID.randomUUID();
+        publishOrder(placed(orderId, 8L), 0);
+
+        assertThat(awaitOrder(orderId, o -> true).person()).isEqualTo(new Reference(8L, "Person 8"));
+    }
+
+    @Test
+    void withoutToken_returns401() {
+        client.mutate().defaultHeaders(headers -> headers.remove(HttpHeaders.AUTHORIZATION)).build()
+                .get().uri("/api/orders").exchange()
+                .expectStatus().isUnauthorized();
+    }
+
+    /**
+     * Writes this service's part of the contract to {@code target/openapi.json}, first writing and then asserting, so a
+     * failing assertion still leaves the file to inspect. The gateway merges it into {@code contract/openapi.json}.
+     */
+    @Test
+    void exportOpenApiContract() throws Exception {
+        String json = client.get().uri("/v3/api-docs").exchange()
+                .expectStatus().isOk()
+                .expectBody(String.class).returnResult().getResponseBody();
+        Files.writeString(Path.of("target/openapi.json"), json + System.lineSeparator());
+
+        DocumentContext contract = JsonPath.parse(json);
+        assertThat(contract.read("$.paths['/api/orders'].get.operationId", String.class)).isEqualTo("listOrders");
+        assertThat(contract.read("$.paths['/api/orders/{id}'].get.operationId", String.class)).isEqualTo("getOrder");
+        assertThat(contract.read("$.paths['/api/orders'].get.parameters[*].name", List.class))
+                .contains("q", "personId", "status", "page", "size", "sort");
+        assertThat(contract.read("$.components.schemas.OrderResponse.required", List.class))
+                .contains("id", "version", "status", "allowedActions", "person", "address");
+        assertThat(contract.read("$.components.schemas.PaymentResponse.required", List.class))
+                .contains("id", "version", "status", "allowedActions", "order");
+        assertThat(contract.read("$.components.schemas.Reference.required", List.class)).contains("id", "label");
+        assertThat(contract.read("$.components.schemas.FieldError.properties.code.enum", List.class))
+                .contains("invalid-state");
+    }
+
+    private static ReferenceClient.Page<?> paged(List<?> content) {
+        return new ReferenceClient.Page<>(content);
     }
 
     private OrderResponse awaitOrder(UUID orderId, java.util.function.Predicate<OrderResponse> condition) {
         OrderResponse[] found = new OrderResponse[1];
         await().atMost(Duration.ofSeconds(30)).pollInterval(Duration.ofMillis(200)).until(() -> {
-            var result = client.get().uri("/api/v1/orders/{id}", orderId).exchange().returnResult(String.class);
+            var result = client.get().uri("/api/orders/{id}", orderId).exchange().returnResult(String.class);
             if (result.getStatus().value() != 200) {
                 return false;
             }

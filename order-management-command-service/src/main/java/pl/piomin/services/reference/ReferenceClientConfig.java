@@ -19,6 +19,7 @@ public class ReferenceClientConfig {
         RestClient restClient = builder
                 .baseUrl(properties.baseUrl().toString())
                 .requestFactory(ClientHttpRequestFactoryBuilder.detect().build(settings))
+                .requestInterceptor(new BearerTokenRelay())
                 .build();
         return HttpServiceProxyFactory.builderFor(RestClientAdapter.create(restClient)).build()
                 .createClient(ReferenceClient.class);

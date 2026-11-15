@@ -9,6 +9,8 @@ metadata:
     app.kubernetes.io/part-of: order-management
 data:
   SPRING_DATASOURCE_URL: "jdbc:postgresql://postgres-reference:5432/orders_reference"
+  SERVER_PORT: "8082"
+  JWK_SET_URI: "http://keycloak:8080/realms/orders/protocol/openid-connect/certs"
 ---
 apiVersion: apps/v1
 kind: Deployment

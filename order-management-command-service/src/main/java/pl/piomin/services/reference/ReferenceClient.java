@@ -7,13 +7,14 @@ import org.springframework.web.service.annotation.HttpExchange;
 import java.math.BigDecimal;
 
 /** Declarative client of the reference service; only the fields the command side needs are mapped. */
-@HttpExchange("/api/v1")
+@HttpExchange("/api")
 public interface ReferenceClient {
 
     record PersonRef(Long id) {
     }
 
-    record AddressRef(Long id, Long personId) {
+    /** {@code person} is the owner's {@code {id, label}} summary. */
+    record AddressRef(Long id, PersonRef person) {
     }
 
     record ItemRef(Long id, String sku, String name, BigDecimal price) {

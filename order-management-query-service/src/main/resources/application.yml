@@ -1,4 +1,9 @@
 spring:
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          jwk-set-uri: ${JWK_SET_URI:http://localhost:8080/realms/orders/protocol/openid-connect/certs}
   application:
     name: order-management-query-service
   threads:
@@ -26,8 +31,18 @@ spring:
       auto-offset-reset: earliest
       enable-auto-commit: false
 
+springdoc:
+  default-produces-media-type: application/json   # otherwise success responses are */*
+  writer-with-default-pretty-printer: true
+  writer-with-order-by-keys: true                  # stable file, readable diffs
+
+reference:
+  base-url: ${REFERENCE_BASE_URL:http://localhost:8082}
+
 server:
-  port: ${SERVER_PORT:8081}
+  # behind the gateway: Location headers and redirects use the host the client called (X-Forwarded-*)
+  forward-headers-strategy: framework
+  port: ${SERVER_PORT:8084}
   shutdown: graceful
 
 management:

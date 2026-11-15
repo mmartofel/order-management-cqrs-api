@@ -15,7 +15,7 @@ public final class Orders {
     public static Order load(UUID orderId, ProcessingContext context) {
         Order order = context.component(StateManager.class).loadEntity(Order.class, orderId, context).join();
         if (order == null || order.id() == null) {
-            throw new InvalidReferenceException("Order " + orderId + " does not exist");
+            throw new InvalidReferenceException("orderId", "Order " + orderId + " does not exist");
         }
         return order;
     }

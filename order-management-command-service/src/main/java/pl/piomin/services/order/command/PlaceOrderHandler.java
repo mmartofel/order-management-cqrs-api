@@ -10,6 +10,7 @@ import pl.piomin.services.reference.ReferenceData;
 
 import java.math.BigDecimal;
 import java.time.Clock;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -29,18 +30,26 @@ public class PlaceOrderHandler {
         this.clock = clock;
     }
 
+    /** @return the new order's version, 0 */
     @CommandHandler
-    public void handle(PlaceOrderCommand command, EventAppender eventAppender) {
+    public long handle(PlaceOrderCommand command, EventAppender eventAppender) {
         referenceData.requirePerson(command.personId());
         referenceData.requireAddressOf(command.addressId(), command.personId());
 
-        // the same item listed twice becomes one line with the summed quantity
+        // the same item listed twice becomes one line with the summed quantity; an unknown item is reported on the
+        // first request line that names it
         Map<Long, Integer> quantities = new LinkedHashMap<>();
-        command.lines().forEach(line -> quantities.merge(line.itemId(), line.quantity(), Integer::sum));
+        Map<Long, Integer> firstIndex = new HashMap<>();
+        for (int i = 0; i < command.lines().size(); i++) {
+            PlaceOrderCommand.Line line = command.lines().get(i);
+            quantities.merge(line.itemId(), line.quantity(), Integer::sum);
+            firstIndex.putIfAbsent(line.itemId(), i);
+        }
 
         List<OrderLine> lines = quantities.entrySet().stream()
                 .map(entry -> {
-                    ItemRef item = referenceData.requireItem(entry.getKey());
+                    ItemRef item = referenceData.requireItem(entry.getKey(),
+                            "lines[" + firstIndex.get(entry.getKey()) + "].itemId");
                     return new OrderLine(item.id(), item.sku(), item.name(), entry.getValue(), item.price());
                 })
                 .toList();
@@ -48,5 +57,6 @@ public class PlaceOrderHandler {
 
         eventAppender.append(new OrderPlaced(command.orderId(), command.personId(), command.addressId(), lines, total,
                 clock.instant()));
+        return 0L;
     }
 }
