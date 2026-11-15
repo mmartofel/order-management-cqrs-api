@@ -1,6 +1,27 @@
-# order-management 1.0.0
+# order-management-cqrs-api
 
 REST API for managing orders: **Person, Address, Item, Order, Payment, Delivery**, all persisted in PostgreSQL.
+Version 1.0.0.
+
+## Repository layout
+
+```
+.
+├── pom.xml                              # Maven parent (Spring Boot 4.1.2, Axon BOM 5.4.1), lists the modules
+├── mvnw, .mvn/                          # Maven wrapper; no local Maven needed
+├── order-management-events/             # event records shared by the command and query services
+├── order-management-command-service/    # writes: Axon entities, command handlers, Kafka relay
+├── order-management-query-service/      # reads: Kafka listeners, projections, read models, GET endpoints
+├── order-management-reference-service/  # Person, Address, Item CRUD
+├── docker-compose.yml                   # local PostgreSQL x3 and Kafka
+├── .github/workflows/ci.yml             # build and test on every push and pull request
+└── CLAUDE.md                            # architecture decisions (style, scope, topology, event store)
+```
+
+Inside each service the code is organised by aggregate (`order`, `payment`, `delivery`, `person`, ...). The packages
+are `domain` (event-sourced entities), `command` (commands, handlers, command controller), `projection` (Kafka
+listeners) and `query` (read models, query handlers, query controller). Database migrations are under
+`src/main/resources/db/migration`.
 
 Order, Payment and Delivery use **CQRS + Event Sourcing** with [Axon Framework](https://www.axoniq.io) 5.4.1. Commands go to a
 command service, which stores events. The events reach a separate query service through Kafka, and the query
@@ -27,12 +48,18 @@ Stack: Java 21, Spring Boot 4.1.2, Axon Framework 5.4.1, PostgreSQL 18, Apache K
 
 ## Run locally
 
+Prerequisites: Java 21, and Docker or Podman. Maven comes with the wrapper.
+
+**1. Start the dependencies.** This starts three PostgreSQL databases (ports 5432, 5433, 5434) and Kafka (9092):
+
 ```bash
 docker compose up -d --wait          # or: podman compose up -d --wait
-./mvnw clean verify                  # builds and tests all modules (needs Docker or Podman for Testcontainers)
-java -jar order-management-reference-service/target/order-management-reference-service-1.0.0.jar
-java -jar order-management-command-service/target/order-management-command-service-1.0.0.jar
-java -jar order-management-query-service/target/order-management-query-service-1.0.0.jar
+```
+
+**2. Build and test.** The tests start their own PostgreSQL and Kafka containers through Testcontainers:
+
+```bash
+./mvnw clean verify
 ```
 
 With Podman, point Testcontainers at the Podman socket first:
@@ -42,9 +69,62 @@ export DOCKER_HOST=unix://$(podman machine inspect --format '{{.ConnectionInfo.P
 export TESTCONTAINERS_RYUK_DISABLED=true
 ```
 
-Configuration via environment: `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME`, `SPRING_DATASOURCE_PASSWORD`,
-`SPRING_KAFKA_BOOTSTRAP_SERVERS`, `SERVER_PORT`, `REFERENCE_BASE_URL` (command service), `QUERY_CONSUMER_GROUP`
-(query service).
+**3. Start the services**, each in its own terminal. Flyway creates the tables on first start:
+
+```bash
+java -jar order-management-reference-service/target/order-management-reference-service-1.0.0.jar   # :8082
+java -jar order-management-command-service/target/order-management-command-service-1.0.0.jar       # :8080
+java -jar order-management-query-service/target/order-management-query-service-1.0.0.jar           # :8081
+```
+
+Each service is ready when `curl localhost:<port>/actuator/health/readiness` returns `UP`. Then try the
+[example](#example) below.
+
+**4. Stop.** Press `Ctrl+C` in each service's terminal, then remove the dependencies (`-v` also deletes the data):
+
+```bash
+docker compose down -v
+```
+
+### Configuration
+
+All settings have local defaults that match `docker-compose.yml`. Override them with environment variables:
+
+| Variable | Services | Default |
+|---|---|---|
+| `SPRING_DATASOURCE_URL` | all | `jdbc:postgresql://localhost:5432/orders_command` (command), `:5433/orders_query` (query), `:5434/orders_reference` (reference) |
+| `SPRING_DATASOURCE_USERNAME`, `SPRING_DATASOURCE_PASSWORD` | all | `orders` / `orders` (local only) |
+| `SPRING_KAFKA_BOOTSTRAP_SERVERS` | command, query | `localhost:9092` |
+| `SERVER_PORT` | all | 8080 command, 8081 query, 8082 reference |
+| `REFERENCE_BASE_URL` | command | `http://localhost:8082` |
+| `QUERY_CONSUMER_GROUP` | query | `order-management-query-service` |
+
+## Run on OpenShift
+
+> **Work in progress.** The OpenShift manifests are not in the repository yet. This section describes the target
+> deployment; the concrete files and commands will be added under `deploy/openshift/`.
+
+Target layout in one project (namespace):
+
+| Component | OpenShift resources | Notes |
+|---|---|---|
+| `reference-service`, `command-service`, `query-service` | Deployment, Service, Route, ConfigMap | One image per service. Readiness probe `/actuator/health/readiness`, liveness probe `/actuator/health/liveness` |
+| PostgreSQL x3 (`orders_command`, `orders_query`, `orders_reference`) | StatefulSet or operator-managed cluster, PVC, Secret | Credentials only in Secrets, never in git |
+| Kafka | Streams for Apache Kafka (Strimzi) operator, or a single-node KRaft StatefulSet | Topics `order-events`, `payment-events`, `delivery-events` and their `-dlt` topics |
+
+The services read the variables in [Configuration](#configuration) from ConfigMaps and Secrets. The command service
+reaches the reference service through its in-cluster Service (`REFERENCE_BASE_URL=http://reference-service:8082`).
+Routes expose the command service (writes), the query service (reads) and the reference service.
+
+Images are built from the jars, for example with Cloud Native Buildpacks:
+
+```bash
+./mvnw install -DskipTests
+./mvnw -pl order-management-reference-service,order-management-command-service,order-management-query-service \
+       spring-boot:build-image
+```
+
+The images run as a non-root user, which OpenShift's restricted security context needs.
 
 ## API
 
@@ -209,4 +289,3 @@ CI: `.github/workflows/ci.yml` runs `./mvnw -B clean verify` on every push and p
 
 Semantic versioning, starting at `1.0.0`. All modules share the parent's version. A change to an event record or to
 an endpoint is a contract change and bumps it.
-# order-management-cqrs-api
