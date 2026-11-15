@@ -123,8 +123,9 @@ spec:
             seccompProfile:
               type: RuntimeDefault
           volumeMounts:
+            # The volume root may hold lost+found (ext4), which Kafka rejects in a log dir; KAFKA_LOG_DIRS is a subdirectory.
             - name: data
-              mountPath: /var/lib/kafka/data
+              mountPath: /var/lib/kafka
             - name: config
               mountPath: /opt/kafka/config
             - name: logs
