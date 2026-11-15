@@ -1,0 +1,103 @@
+# reference-service: settings in the ConfigMap, database credentials from the Secret postgres-reference
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: reference-service
+  labels:
+    app: reference-service
+    app.kubernetes.io/name: reference-service
+    app.kubernetes.io/part-of: order-management
+data:
+  SPRING_DATASOURCE_URL: "jdbc:postgresql://postgres-reference:5432/orders_reference"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: reference-service
+  labels:
+    app: reference-service
+    app.kubernetes.io/name: reference-service
+    app.kubernetes.io/component: backend
+    app.kubernetes.io/part-of: order-management
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: reference-service
+  template:
+    metadata:
+      labels:
+        app: reference-service
+        app.kubernetes.io/name: reference-service
+        app.kubernetes.io/component: backend
+        app.kubernetes.io/part-of: order-management
+    spec:
+      terminationGracePeriodSeconds: 45
+      containers:
+        - name: reference-service
+          image: order-management-reference-service      # bare name; Skaffold sets the registry and tag
+          ports:
+            - name: http
+              containerPort: 8082
+          envFrom:
+            - configMapRef:
+                name: reference-service
+          env:
+            - name: SPRING_DATASOURCE_USERNAME
+              valueFrom:
+                secretKeyRef: { name: postgres-reference, key: username }
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: postgres-reference, key: password }
+          startupProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 36
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: http
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            periodSeconds: 10
+            failureThreshold: 3
+          lifecycle:
+            preStop:                      # let the Service stop routing before graceful shutdown starts
+              exec:
+                command: ["sh", "-c", "sleep 10"]
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            capabilities:
+              drop: [ALL]
+            seccompProfile:
+              type: RuntimeDefault
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: reference-service
+  labels:
+    app: reference-service
+    app.kubernetes.io/name: reference-service
+    app.kubernetes.io/component: backend
+    app.kubernetes.io/part-of: order-management
+spec:
+  selector:
+    app: reference-service
+  ports:
+    - name: http
+      port: 8082
+      targetPort: http

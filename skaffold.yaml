@@ -1,0 +1,55 @@
+# Builds the three service images with Jib (no container engine needed) and deploys deploy/overlays/<target>.
+#   skaffold run -p openshift --default-repo=<registry>/<org> -n <namespace>
+#   skaffold delete -p openshift -n <namespace>
+apiVersion: skaffold/v4beta13
+kind: Config
+metadata:
+  name: order-management
+build:
+  artifacts:
+    - image: order-management-reference-service      # bare names, as in the manifests; registry from --default-repo
+      jib:
+        project: order-management-reference-service
+        args: ["-DskipTests"]          # tests run in ./mvnw verify and CI, not in every image build
+    - image: order-management-command-service
+      jib:
+        project: order-management-command-service
+        args: ["-DskipTests"]          # tests run in ./mvnw verify and CI, not in every image build
+    - image: order-management-query-service
+      jib:
+        project: order-management-query-service
+        args: ["-DskipTests"]          # tests run in ./mvnw verify and CI, not in every image build
+  tagPolicy:
+    gitCommit: {}
+manifests:
+  kustomize:
+    paths:
+      - '{{ default "deploy/overlays/local" .DEPLOY_OVERLAY }}'
+deploy:
+  kubectl:
+    hooks:
+      before:
+        - host:
+            command: ["sh", "deploy/ensure-secrets.sh"]
+            os: [darwin, linux]
+portForward:                       # local profile only
+  - resourceType: service
+    resourceName: command-service
+    port: 8080
+    localPort: 8080
+  - resourceType: service
+    resourceName: query-service
+    port: 8081
+    localPort: 8081
+  - resourceType: service
+    resourceName: reference-service
+    port: 8082
+    localPort: 8082
+profiles:
+  - name: openshift
+    patches:
+      - op: replace
+        path: /manifests/kustomize/paths/0
+        value: '{{ default "deploy/overlays/openshift" .DEPLOY_OVERLAY }}'
+      - op: remove
+        path: /portForward

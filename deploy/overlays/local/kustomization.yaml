@@ -1,0 +1,5 @@
+# Local cluster (kind, minikube, Docker Desktop): the base as it is; Skaffold forwards the service ports.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base

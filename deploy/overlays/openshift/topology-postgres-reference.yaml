@@ -1,0 +1,8 @@
+# Developer > Topology: the PostgreSQL icon.
+# Deployment metadata only: selectors are immutable.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres-reference
+  labels:
+    app.openshift.io/runtime: postgresql

@@ -1,0 +1,157 @@
+# Single-node Kafka in KRaft mode (broker and controller in one process), data on a PVC.
+# The apache/kafka image writes its generated config into /opt/kafka/config and its logs below /opt/kafka, which a
+# random UID (OpenShift restricted SCC) cannot do: an init container copies the config into a writable emptyDir and
+# LOG_DIR points to another one.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: kafka
+  labels:
+    app: kafka
+    app.kubernetes.io/name: kafka
+    app.kubernetes.io/component: broker
+    app.kubernetes.io/part-of: order-management
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kafka
+  labels:
+    app: kafka
+    app.kubernetes.io/name: kafka
+    app.kubernetes.io/component: broker
+    app.kubernetes.io/part-of: order-management
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate            # ReadWriteOnce volume, and a single broker must never run twice
+  selector:
+    matchLabels:
+      app: kafka
+  template:
+    metadata:
+      labels:
+        app: kafka
+        app.kubernetes.io/name: kafka
+        app.kubernetes.io/component: broker
+        app.kubernetes.io/part-of: order-management
+    spec:
+      initContainers:
+        - name: copy-config
+          image: docker.io/apache/kafka:4.1.0
+          command: ["sh", "-c", "cp -r /opt/kafka/config/. /work/"]
+          volumeMounts:
+            - name: config
+              mountPath: /work
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 128Mi
+      containers:
+        - name: kafka
+          image: docker.io/apache/kafka:4.1.0
+          ports:
+            - name: kafka
+              containerPort: 9092
+            - name: controller
+              containerPort: 9093
+          env:
+            - name: KAFKA_NODE_ID
+              value: "1"
+            - name: KAFKA_PROCESS_ROLES
+              value: broker,controller
+            # fixed, so a restart reuses the storage already formatted on the PVC
+            - name: CLUSTER_ID
+              value: b3JkZXItbWFuYWdlbWVudA
+            - name: KAFKA_LISTENERS
+              value: PLAINTEXT://:9092,CONTROLLER://:9093
+            - name: KAFKA_ADVERTISED_LISTENERS
+              value: PLAINTEXT://kafka:9092
+            - name: KAFKA_LISTENER_SECURITY_PROTOCOL_MAP
+              value: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+            - name: KAFKA_CONTROLLER_LISTENER_NAMES
+              value: CONTROLLER
+            - name: KAFKA_CONTROLLER_QUORUM_VOTERS
+              value: 1@localhost:9093
+            - name: KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR
+              value: "1"
+            - name: KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR
+              value: "1"
+            - name: KAFKA_TRANSACTION_STATE_LOG_MIN_ISR
+              value: "1"
+            - name: KAFKA_LOG_DIRS
+              value: /var/lib/kafka/data
+            - name: LOG_DIR
+              value: /opt/kafka/logs
+            - name: KAFKA_HEAP_OPTS
+              value: "-Xms256m -Xmx512m"
+          startupProbe:
+            exec:
+              command: ["sh", "-c", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 > /dev/null 2>&1"]
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 20
+            failureThreshold: 36
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 > /dev/null 2>&1"]
+            periodSeconds: 20
+            timeoutSeconds: 20
+          livenessProbe:
+            tcpSocket:
+              port: kafka
+            periodSeconds: 10
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 250m
+              memory: 768Mi
+            limits:
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            capabilities:
+              drop: [ALL]
+            seccompProfile:
+              type: RuntimeDefault
+          volumeMounts:
+            # The volume root may hold lost+found (ext4), which Kafka rejects in a log dir; KAFKA_LOG_DIRS is a subdirectory.
+            - name: data
+              mountPath: /var/lib/kafka
+            - name: config
+              mountPath: /opt/kafka/config
+            - name: logs
+              mountPath: /opt/kafka/logs
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: kafka
+        - name: config
+          emptyDir: {}
+        - name: logs
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka
+  labels:
+    app: kafka
+    app.kubernetes.io/name: kafka
+    app.kubernetes.io/component: broker
+    app.kubernetes.io/part-of: order-management
+spec:
+  selector:
+    app: kafka
+  ports:
+    - name: kafka
+      port: 9092
+      targetPort: kafka

@@ -1,0 +1,12 @@
+# Plain Kubernetes, valid on any cluster: no Route, Ingress, host, registry, namespace or secret value.
+# Secrets postgres-command, postgres-query and postgres-reference are created by deploy/ensure-secrets.sh.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - postgres-command.yaml
+  - postgres-query.yaml
+  - postgres-reference.yaml
+  - kafka.yaml
+  - reference-service.yaml
+  - command-service.yaml
+  - query-service.yaml

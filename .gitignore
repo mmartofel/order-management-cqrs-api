@@ -4,3 +4,8 @@ target/
 .vscode/
 .DS_Store
 !.mvn/wrapper/maven-wrapper.properties
+deploy/environments/*
+!deploy/environments/example/
+
+# registry credentials, never commit
+quay.sh
