@@ -131,6 +131,16 @@ skaffold.yaml
 
 Prerequisites: `oc`, `kubectl`, `skaffold` v2, Java 21, and a registry the cluster can pull from.
 
+Skaffold deploys with `kubectl`, which works only within one minor version of the cluster's Kubernetes (`oc version`
+shows it). If yours is older, use `oc` instead: it includes a matching `kubectl`. Link it under that name in a
+folder that comes first on your `PATH`:
+
+```bash
+mkdir -p ~/.local/oc-kubectl && ln -sf "$(command -v oc)" ~/.local/oc-kubectl/kubectl
+export PATH=~/.local/oc-kubectl:$PATH        # in the shell that runs skaffold
+kubectl version                              # the client version now matches the cluster
+```
+
 ```bash
 oc login --server=<api-url> ...                       # or a token from the web console
 oc new-project order-management                       # or: oc project <existing>
