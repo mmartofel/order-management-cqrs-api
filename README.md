@@ -131,16 +131,28 @@ oc new-project order-management                       # or: oc project <existing
 ./mvnw install -DskipTests                            # Skaffold builds the images from the installed modules
 skaffold run -p openshift --default-repo=<registry>/<org> -n order-management
 oc get route                                          # the generated hosts of the three services
+# optional: the version label, set at deploy time and never in a file
+skaffold run -p openshift --default-repo=quay.io/<org> -n order-management --label app.kubernetes.io/version=$(git rev-parse --short HEAD)
 ```
 
-- **Registry:** `--default-repo` is where Jib pushes the images, for example `quay.io/<org>`. To use the cluster's
-  own registry, expose its default route and log in to it. The namespace is then part of the repository:
-  `--default-repo=$(oc get route default-route -n openshift-image-registry -o jsonpath='{.spec.host}')/order-management`.
+- **Registry:** `--default-repo` is where Jib pushes the images, as `<default-repo>/<image>`. With Quay.io that is
+  `--default-repo=quay.io/<org>`: the registry path, not the web page `quay.io/repository/<org>`. Jib needs no Docker or
+  Podman, and reads the registry credentials from `~/.docker/config.json`, not from Podman's `auth.json`. With a
+  Quay.io robot account:
+  ```bash
+  echo "$QUAY_TOKEN" | podman login quay.io -u "$QUAY_USER" --password-stdin --authfile ~/.docker/config.json
+  ```
+  A robot account usually cannot create repositories. Create them in Quay first, and make them public or give the
+  namespace a pull secret, otherwise the pods stay in `ImagePullBackOff`:
+  `order-management-reference-service`, `order-management-command-service`, `order-management-query-service`.
+  Skaffold's warning `Could not get docker context` is harmless.
 - **Secrets:** on the first deploy, `deploy/ensure-secrets.sh` creates `postgres-command`, `postgres-query` and
   `postgres-reference`, with user `orders` and a random password. It never changes an existing Secret, because
   PostgreSQL keeps the password of its first start. No secret value is in git.
 - **Security:** every container runs under OpenShift's `restricted-v2` SCC, with a random UID and no root. The Kafka
   image needs a writable config folder for that: an init container copies it into an `emptyDir`.
+- **Topology:** in the Developer console the stack is the `order-management` group. It shows Spring, PostgreSQL and
+  AMQ (Kafka) icons, arrows from each service to what it calls, and a link to this repository.
 - **Environment settings:** copy `deploy/environments/example` to `deploy/environments/<env>`, adjust replicas and
   volume sizes, and deploy with `DEPLOY_OVERLAY=deploy/environments/<env> skaffold run -p openshift ...`.
 - **Remove:** `skaffold delete -p openshift -n order-management` removes everything in the manifests, **including the

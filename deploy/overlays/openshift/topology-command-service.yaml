@@ -1,0 +1,14 @@
+# Developer > Topology: Spring icon, arrows to its database, Kafka and the reference service, source link.
+# Deployment metadata only: selectors are immutable.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: command-service
+  labels:
+    app.openshift.io/runtime: spring
+  annotations:
+    app.openshift.io/connects-to: >-
+      [{"apiVersion":"apps/v1","kind":"Deployment","name":"postgres-command"},
+      {"apiVersion":"apps/v1","kind":"Deployment","name":"kafka"},
+      {"apiVersion":"apps/v1","kind":"Deployment","name":"reference-service"}]
+    app.openshift.io/vcs-uri: https://github.com/mmartofel/order-management-cqrs-api

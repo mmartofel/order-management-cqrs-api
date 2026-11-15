@@ -90,6 +90,7 @@ metadata:
   labels:
     app: postgres-reference
     app.kubernetes.io/name: postgres-reference
+    app.kubernetes.io/component: database
     app.kubernetes.io/part-of: order-management
 spec:
   selector:

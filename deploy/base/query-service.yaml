@@ -18,11 +18,8 @@ metadata:
   labels:
     app: query-service
     app.kubernetes.io/name: query-service
-    app.kubernetes.io/component: api
+    app.kubernetes.io/component: backend
     app.kubernetes.io/part-of: order-management
-    app.kubernetes.io/version: "1.0.0"
-  annotations:
-    app.openshift.io/connects-to: '[{"apiVersion":"apps/v1","kind":"Deployment","name":"postgres-query"},{"apiVersion":"apps/v1","kind":"Deployment","name":"kafka"}]'
 spec:
   replicas: 1
   selector:
@@ -33,7 +30,7 @@ spec:
       labels:
         app: query-service
         app.kubernetes.io/name: query-service
-        app.kubernetes.io/component: api
+        app.kubernetes.io/component: backend
         app.kubernetes.io/part-of: order-management
     spec:
       terminationGracePeriodSeconds: 45
@@ -96,6 +93,7 @@ metadata:
   labels:
     app: query-service
     app.kubernetes.io/name: query-service
+    app.kubernetes.io/component: backend
     app.kubernetes.io/part-of: order-management
 spec:
   selector:

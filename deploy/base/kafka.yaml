@@ -145,6 +145,7 @@ metadata:
   labels:
     app: kafka
     app.kubernetes.io/name: kafka
+    app.kubernetes.io/component: broker
     app.kubernetes.io/part-of: order-management
 spec:
   selector:

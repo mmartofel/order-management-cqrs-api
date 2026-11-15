@@ -5,6 +5,8 @@ metadata:
   name: command-service
   labels:
     app: command-service
+    app.kubernetes.io/name: command-service
+    app.kubernetes.io/component: backend
     app.kubernetes.io/part-of: order-management
 spec:
   to:
@@ -22,6 +24,8 @@ metadata:
   name: query-service
   labels:
     app: query-service
+    app.kubernetes.io/name: query-service
+    app.kubernetes.io/component: backend
     app.kubernetes.io/part-of: order-management
 spec:
   to:
@@ -39,6 +43,8 @@ metadata:
   name: reference-service
   labels:
     app: reference-service
+    app.kubernetes.io/name: reference-service
+    app.kubernetes.io/component: backend
     app.kubernetes.io/part-of: order-management
 spec:
   to:

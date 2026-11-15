@@ -1,0 +1,12 @@
+# Developer > Topology: Spring icon, arrow to its database, source link.
+# Deployment metadata only: selectors are immutable.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: reference-service
+  labels:
+    app.openshift.io/runtime: spring
+  annotations:
+    app.openshift.io/connects-to: >-
+      [{"apiVersion":"apps/v1","kind":"Deployment","name":"postgres-reference"}]
+    app.openshift.io/vcs-uri: https://github.com/mmartofel/order-management-cqrs-api

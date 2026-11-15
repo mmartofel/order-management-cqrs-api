@@ -20,11 +20,8 @@ metadata:
   labels:
     app: command-service
     app.kubernetes.io/name: command-service
-    app.kubernetes.io/component: api
+    app.kubernetes.io/component: backend
     app.kubernetes.io/part-of: order-management
-    app.kubernetes.io/version: "1.0.0"
-  annotations:
-    app.openshift.io/connects-to: '[{"apiVersion":"apps/v1","kind":"Deployment","name":"postgres-command"},{"apiVersion":"apps/v1","kind":"Deployment","name":"kafka"},{"apiVersion":"apps/v1","kind":"Deployment","name":"reference-service"}]'
 spec:
   replicas: 1
   selector:
@@ -35,7 +32,7 @@ spec:
       labels:
         app: command-service
         app.kubernetes.io/name: command-service
-        app.kubernetes.io/component: api
+        app.kubernetes.io/component: backend
         app.kubernetes.io/part-of: order-management
     spec:
       terminationGracePeriodSeconds: 45
@@ -98,6 +95,7 @@ metadata:
   labels:
     app: command-service
     app.kubernetes.io/name: command-service
+    app.kubernetes.io/component: backend
     app.kubernetes.io/part-of: order-management
 spec:
   selector:

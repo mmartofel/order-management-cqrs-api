@@ -1,0 +1,8 @@
+# Developer > Topology: the AMQ (Red Hat Kafka) icon; "amq" is in the console icon list.
+# Deployment metadata only: selectors are immutable.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kafka
+  labels:
+    app.openshift.io/runtime: amq
