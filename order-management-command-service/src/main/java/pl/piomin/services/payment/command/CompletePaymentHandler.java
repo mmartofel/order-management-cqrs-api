@@ -15,11 +15,16 @@ import pl.piomin.services.payment.domain.event.PaymentCompleted;
 @Component
 public class CompletePaymentHandler {
 
+    /** @return the payment's version after the command */
     @CommandHandler
-    public void handle(CompletePaymentCommand command, @InjectEntity Payment payment, ProcessingContext context,
+    public long handle(CompletePaymentCommand command, @InjectEntity Payment payment, ProcessingContext context,
                        EventAppender eventAppender) {
+        payment.requireVersion(command.version());
+        // computed before the append: Axon applies the appended event to the entity right away
+        long next = command.version() + 1;
         PaymentCompleted completed = payment.complete(command.transactionReference());
         OrderPaid paid = Orders.load(payment.orderId(), context).pay(payment.id());
         eventAppender.append(completed, paid);
+        return next;
     }
 }

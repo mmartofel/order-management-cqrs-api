@@ -7,7 +7,7 @@ import org.springframework.web.service.annotation.HttpExchange;
 import java.math.BigDecimal;
 
 /** Declarative client of the reference service; only the fields the command side needs are mapped. */
-@HttpExchange("/api/v1")
+@HttpExchange("/api")
 public interface ReferenceClient {
 
     record PersonRef(Long id) {

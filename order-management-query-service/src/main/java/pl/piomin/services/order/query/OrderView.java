@@ -10,6 +10,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.OrderColumn;
 import jakarta.persistence.Table;
+import pl.piomin.services.order.domain.OrderStatus;
 
 import java.math.BigDecimal;
 import java.time.Instant;

@@ -1,10 +1,9 @@
 package pl.piomin.services.address;
 
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 
-public interface AddressRepository extends JpaRepository<Address, Long> {
+public interface AddressRepository extends JpaRepository<Address, Long>, JpaSpecificationExecutor<Address> {
 
-    Page<Address> findByPersonId(Long personId, Pageable pageable);
+    long countByPersonId(Long personId);
 }

@@ -4,5 +4,6 @@ import org.axonframework.modelling.annotation.TargetEntityId;
 
 import java.util.UUID;
 
-public record RefundPaymentCommand(@TargetEntityId UUID paymentId, String reason) {
+/** {@code version} is the version the client saw; a different current version is a 409. */
+public record RefundPaymentCommand(@TargetEntityId UUID paymentId, String reason, long version) {
 }

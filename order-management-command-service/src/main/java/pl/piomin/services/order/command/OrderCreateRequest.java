@@ -9,11 +9,12 @@ import jakarta.validation.constraints.Size;
 
 import java.util.List;
 
-public record PlaceOrderRequest(
+/** Places an order; the same item listed twice becomes one line with the summed quantity. */
+public record OrderCreateRequest(
         @NotNull Long personId,
         @NotNull Long addressId,
-        @NotEmpty @Size(max = 100) List<@Valid @NotNull Line> lines) {
+        @NotEmpty @Size(min = 1, max = 100) List<@Valid @NotNull OrderLineRequest> lines) {
 
-    public record Line(@NotNull Long itemId, @NotNull @Min(1) @Max(1000) Integer quantity) {
+    public record OrderLineRequest(@NotNull Long itemId, @NotNull @Min(1) @Max(1000) Integer quantity) {
     }
 }

@@ -22,6 +22,7 @@ import pl.piomin.services.delivery.domain.event.DeliveryScheduled;
 import pl.piomin.services.delivery.domain.event.DeliveryShipped;
 import pl.piomin.services.exception.BusinessRuleViolationException;
 import pl.piomin.services.exception.InvalidReferenceException;
+import pl.piomin.services.exception.StaleVersionException;
 import pl.piomin.services.order.command.CancelOrderCommand;
 import pl.piomin.services.order.command.CancelOrderHandler;
 import pl.piomin.services.order.command.PlaceOrderCommand;
@@ -56,6 +57,7 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
@@ -105,7 +107,8 @@ class CommandHandlersFixtureTest {
 
     @Test
     void placeOrder_validReferences_appendsOrderPlacedWithItemSnapshotAndTotal() {
-        when(referenceData.requireItem(10L)).thenReturn(new ItemRef(10L, "SKU-10", "Mug", new BigDecimal("19.99")));
+        when(referenceData.requireItem(eq(10L), anyString()))
+                .thenReturn(new ItemRef(10L, "SKU-10", "Mug", new BigDecimal("19.99")));
 
         fixture.given().noPriorActivity()
                 .when().command(new PlaceOrderCommand(orderId, 1L, 2L,
@@ -116,7 +119,8 @@ class CommandHandlersFixtureTest {
 
     @Test
     void placeOrder_unknownItem_failsWithInvalidReferenceAndAppendsNothing() {
-        when(referenceData.requireItem(anyLong())).thenThrow(new InvalidReferenceException("Item 99 does not exist"));
+        when(referenceData.requireItem(anyLong(), anyString()))
+                .thenThrow(new InvalidReferenceException("lines[0].itemId", "Item 99 does not exist"));
 
         fixture.given().noPriorActivity()
                 .when().command(new PlaceOrderCommand(orderId, 1L, 2L, List.of(new PlaceOrderCommand.Line(99L, 1))))
@@ -126,7 +130,7 @@ class CommandHandlersFixtureTest {
 
     @Test
     void placeOrder_addressOfAnotherPerson_failsAndAppendsNothing() {
-        doThrow(new InvalidReferenceException("Address 2 does not belong to person 1"))
+        doThrow(new InvalidReferenceException("addressId", "Address 2 does not belong to person 1"))
                 .when(referenceData).requireAddressOf(eq(2L), eq(1L));
 
         fixture.given().noPriorActivity()
@@ -138,7 +142,7 @@ class CommandHandlersFixtureTest {
     @Test
     void cancelOrder_placed_appendsOrderCancelled() {
         fixture.given().events(placed())
-                .when().command(new CancelOrderCommand(orderId, "changed my mind"))
+                .when().command(new CancelOrderCommand(orderId, "changed my mind", 0))
                 .then().success()
                 .events(new OrderCancelled(orderId, "changed my mind"));
     }
@@ -146,15 +150,23 @@ class CommandHandlersFixtureTest {
     @Test
     void cancelOrder_shipped_failsWithRuleViolation() {
         fixture.given().events(placed(), new OrderPaid(orderId, paymentId), new OrderShipped(orderId, deliveryId))
-                .when().command(new CancelOrderCommand(orderId, "too late"))
+                .when().command(new CancelOrderCommand(orderId, "too late", 2))
                 .then().exception(BusinessRuleViolationException.class)
+                .noEvents();
+    }
+
+    @Test
+    void cancelOrder_staleVersion_failsAndAppendsNothing() {
+        fixture.given().events(placed(), new OrderPaid(orderId, paymentId))
+                .when().command(new CancelOrderCommand(orderId, "changed my mind", 0))
+                .then().exception(StaleVersionException.class)
                 .noEvents();
     }
 
     @Test
     void cancelOrder_unknownOrder_failsWithEntityNotFound() {
         fixture.given().noPriorActivity()
-                .when().command(new CancelOrderCommand(UUID.randomUUID(), "no such order"))
+                .when().command(new CancelOrderCommand(UUID.randomUUID(), "no such order", 0))
                 .then().exception(EntityNotFoundException.class)
                 .noEvents();
     }
@@ -188,7 +200,7 @@ class CommandHandlersFixtureTest {
     @Test
     void completePayment_initiated_appendsPaymentCompletedAndOrderPaid() {
         fixture.given().events(placed(), new PaymentInitiated(paymentId, orderId, TOTAL, "CARD"))
-                .when().command(new CompletePaymentCommand(paymentId, "TX-1"))
+                .when().command(new CompletePaymentCommand(paymentId, "TX-1", 0))
                 .then().success()
                 .events(new PaymentCompleted(paymentId, orderId, "TX-1"), new OrderPaid(orderId, paymentId));
     }
@@ -197,7 +209,7 @@ class CommandHandlersFixtureTest {
     void completePayment_orderCancelledMeanwhile_failsAndAppendsNothing() {
         fixture.given().events(placed(), new PaymentInitiated(paymentId, orderId, TOTAL, "CARD"),
                         new OrderCancelled(orderId, "cancelled"))
-                .when().command(new CompletePaymentCommand(paymentId, "TX-1"))
+                .when().command(new CompletePaymentCommand(paymentId, "TX-1", 0))
                 .then().exception(BusinessRuleViolationException.class)
                 .noEvents();
     }
@@ -207,7 +219,7 @@ class CommandHandlersFixtureTest {
         fixture.given().events(placed(), new PaymentInitiated(paymentId, orderId, TOTAL, "CARD"),
                         new PaymentCompleted(paymentId, orderId, "TX-1"), new OrderPaid(orderId, paymentId),
                         new OrderCancelled(orderId, "cancelled"))
-                .when().command(new RefundPaymentCommand(paymentId, "order cancelled"))
+                .when().command(new RefundPaymentCommand(paymentId, "order cancelled", 1))
                 .then().success()
                 .events(new PaymentRefunded(paymentId, orderId, "order cancelled"));
     }
@@ -216,7 +228,7 @@ class CommandHandlersFixtureTest {
     void refundPayment_notCompleted_failsWithRuleViolation() {
         fixture.given().events(placed(), new PaymentInitiated(paymentId, orderId, TOTAL, "CARD"),
                         new OrderCancelled(orderId, "cancelled"))
-                .when().command(new RefundPaymentCommand(paymentId, "nothing to refund"))
+                .when().command(new RefundPaymentCommand(paymentId, "nothing to refund", 0))
                 .then().exception(BusinessRuleViolationException.class)
                 .noEvents();
     }
@@ -243,7 +255,7 @@ class CommandHandlersFixtureTest {
     @Test
     void shipDelivery_scheduled_appendsDeliveryShippedAndOrderShipped() {
         fixture.given().events(paidAndScheduled())
-                .when().command(new ShipDeliveryCommand(deliveryId, "TRACK-1"))
+                .when().command(new ShipDeliveryCommand(deliveryId, "TRACK-1", 0))
                 .then().success()
                 .events(new DeliveryShipped(deliveryId, orderId, "TRACK-1"), new OrderShipped(orderId, deliveryId));
     }
@@ -252,7 +264,7 @@ class CommandHandlersFixtureTest {
     void shipDelivery_twice_failsWithRuleViolation() {
         fixture.given().events(paidAndScheduled())
                 .events(new DeliveryShipped(deliveryId, orderId, "TRACK-1"), new OrderShipped(orderId, deliveryId))
-                .when().command(new ShipDeliveryCommand(deliveryId, "TRACK-2"))
+                .when().command(new ShipDeliveryCommand(deliveryId, "TRACK-2", 1))
                 .then().exception(BusinessRuleViolationException.class)
                 .noEvents();
     }
@@ -261,7 +273,7 @@ class CommandHandlersFixtureTest {
     void completeDelivery_shipped_appendsDeliveryCompletedAndOrderDelivered() {
         fixture.given().events(paidAndScheduled())
                 .events(new DeliveryShipped(deliveryId, orderId, "TRACK-1"), new OrderShipped(orderId, deliveryId))
-                .when().command(new CompleteDeliveryCommand(deliveryId))
+                .when().command(new CompleteDeliveryCommand(deliveryId, 1))
                 .then().success()
                 .events(new DeliveryCompleted(deliveryId, orderId), new OrderDelivered(orderId, deliveryId));
     }
@@ -269,7 +281,7 @@ class CommandHandlersFixtureTest {
     @Test
     void completeDelivery_notShipped_failsWithRuleViolation() {
         fixture.given().events(paidAndScheduled())
-                .when().command(new CompleteDeliveryCommand(deliveryId))
+                .when().command(new CompleteDeliveryCommand(deliveryId, 0))
                 .then().exception(BusinessRuleViolationException.class)
                 .noEvents();
     }

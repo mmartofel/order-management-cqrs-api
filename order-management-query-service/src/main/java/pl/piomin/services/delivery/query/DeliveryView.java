@@ -6,6 +6,7 @@ import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import pl.piomin.services.delivery.domain.DeliveryStatus;
 
 import java.time.Instant;
 import java.time.LocalDate;

@@ -1,7 +1,13 @@
 package pl.piomin.services.order.command;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
-public record CancelOrderRequest(@NotBlank @Size(min = 1, max = 500) String reason) {
+import static io.swagger.v3.oas.annotations.media.Schema.RequiredMode.REQUIRED;
+
+public record CancelOrderRequest(@NotBlank @Size(min = 1, max = 500) String reason,
+                                 @Schema(requiredMode = REQUIRED, description = "Version from the last read")
+                                 @NotNull Long version) {
 }

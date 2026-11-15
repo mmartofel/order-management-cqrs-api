@@ -19,27 +19,31 @@ public class ReferenceData {
     }
 
     public void requirePerson(Long personId) {
-        fetch(() -> client.person(personId), "Person " + personId + " does not exist");
+        fetch(() -> client.person(personId), "personId", "Person " + personId + " does not exist");
     }
 
     /** The address must exist and belong to the given person. */
     public AddressRef requireAddressOf(Long addressId, Long personId) {
-        AddressRef address = fetch(() -> client.address(addressId), "Address " + addressId + " does not exist");
+        AddressRef address = fetch(() -> client.address(addressId), "addressId",
+                "Address " + addressId + " does not exist");
+        // an address of someone else is reported like a missing one: it does not exist for this person
         if (!address.personId().equals(personId)) {
-            throw new InvalidReferenceException("Address " + addressId + " does not belong to person " + personId);
+            throw new InvalidReferenceException("addressId",
+                    "Address " + addressId + " does not belong to person " + personId);
         }
         return address;
     }
 
-    public ItemRef requireItem(Long itemId) {
-        return fetch(() -> client.item(itemId), "Item " + itemId + " does not exist");
+    /** @param field the request field that holds the id, for example {@code lines[2].itemId} */
+    public ItemRef requireItem(Long itemId, String field) {
+        return fetch(() -> client.item(itemId), field, "Item " + itemId + " does not exist");
     }
 
-    private static <T> T fetch(Supplier<T> call, String notFoundMessage) {
+    private static <T> T fetch(Supplier<T> call, String field, String notFoundMessage) {
         try {
             return call.get();
         } catch (HttpClientErrorException.NotFound e) {
-            throw new InvalidReferenceException(notFoundMessage);
+            throw new InvalidReferenceException(field, notFoundMessage);
         }
     }
 }

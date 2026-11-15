@@ -7,19 +7,23 @@ import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
+import pl.piomin.services.address.AddressRepository;
+import pl.piomin.services.exception.ApiExceptionHandler;
 
 @Service
 @Transactional(readOnly = true)
 public class PersonService {
 
     private final PersonRepository repository;
+    private final AddressRepository addressRepository;
 
-    public PersonService(PersonRepository repository) {
+    public PersonService(PersonRepository repository, AddressRepository addressRepository) {
         this.repository = repository;
+        this.addressRepository = addressRepository;
     }
 
-    public Page<PersonResponse> findAll(Pageable pageable) {
-        return repository.findAll(pageable).map(PersonResponse::of);
+    public Page<PersonResponse> findAll(PersonFilter filter, Pageable pageable) {
+        return repository.findAll(filter.toSpecification(), pageable).map(PersonResponse::of);
     }
 
     public PersonResponse findById(Long id) {
@@ -45,9 +49,14 @@ public class PersonService {
         return PersonResponse.of(repository.saveAndFlush(person));
     }
 
+    /** A person with addresses is not deleted: 409 {@code in-use}. Delete the addresses first. */
     @Transactional
     public void delete(Long id) {
-        repository.delete(get(id));
+        Person person = get(id);
+        if (addressRepository.countByPersonId(id) > 0) {
+            throw ApiExceptionHandler.inUse("Person " + id + " still has addresses", "has addresses");
+        }
+        repository.delete(person);
         repository.flush();
     }
 

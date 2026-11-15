@@ -5,12 +5,12 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 import pl.piomin.services.config.EventRecord;
+import pl.piomin.services.payment.domain.PaymentStatus;
 import pl.piomin.services.payment.domain.event.PaymentCompleted;
 import pl.piomin.services.payment.domain.event.PaymentEvent;
 import pl.piomin.services.payment.domain.event.PaymentFailed;
 import pl.piomin.services.payment.domain.event.PaymentInitiated;
 import pl.piomin.services.payment.domain.event.PaymentRefunded;
-import pl.piomin.services.payment.query.PaymentStatus;
 import pl.piomin.services.payment.query.PaymentView;
 import pl.piomin.services.payment.query.PaymentViewRepository;
 

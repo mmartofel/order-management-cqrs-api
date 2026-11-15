@@ -14,11 +14,16 @@ import pl.piomin.services.order.domain.event.OrderDelivered;
 @Component
 public class CompleteDeliveryHandler {
 
+    /** @return the delivery's version after the command */
     @CommandHandler
-    public void handle(CompleteDeliveryCommand command, @InjectEntity Delivery delivery, ProcessingContext context,
+    public long handle(CompleteDeliveryCommand command, @InjectEntity Delivery delivery, ProcessingContext context,
                        EventAppender eventAppender) {
+        delivery.requireVersion(command.version());
+        // computed before the append: Axon applies the appended event to the entity right away
+        long next = command.version() + 1;
         DeliveryCompleted completed = delivery.complete();
         OrderDelivered delivered = Orders.load(delivery.orderId(), context).deliver(delivery.id());
         eventAppender.append(completed, delivered);
+        return next;
     }
 }

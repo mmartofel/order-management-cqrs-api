@@ -4,6 +4,7 @@ import org.axonframework.eventsourcing.annotation.EventSourcingHandler;
 import org.axonframework.eventsourcing.annotation.reflection.EntityCreator;
 import org.axonframework.extension.spring.stereotype.EventSourced;
 import pl.piomin.services.exception.BusinessRuleViolationException;
+import pl.piomin.services.exception.StaleVersionException;
 import pl.piomin.services.order.domain.event.OrderCancelled;
 import pl.piomin.services.order.domain.event.OrderDelivered;
 import pl.piomin.services.order.domain.event.OrderEvent;
@@ -25,6 +26,8 @@ public class Order {
     private Long addressId;
     private BigDecimal total;
     private OrderStatus status;
+    /** Sequence number of the last event applied: 0 after the creating event, as in the event store. */
+    private long version = -1;
 
     @EntityCreator
     public Order() {
@@ -61,6 +64,14 @@ public class Order {
         }
     }
 
+    /** Only the payment of a cancelled order is refunded. */
+    public void acceptsRefund() {
+        if (status != OrderStatus.CANCELLED) {
+            throw new BusinessRuleViolationException(
+                    "Order " + id + " is " + status + "; only the payment of a cancelled order is refunded");
+        }
+    }
+
     public void acceptsDelivery() {
         requireStatus(OrderStatus.PAID, "scheduled for delivery");
     }
@@ -74,6 +85,7 @@ public class Order {
 
     @EventSourcingHandler
     void on(OrderPlaced event) {
+        this.version++;
         this.id = event.orderId();
         this.addressId = event.addressId();
         this.total = event.total();
@@ -82,21 +94,25 @@ public class Order {
 
     @EventSourcingHandler
     void on(OrderPaid event) {
+        this.version++;
         this.status = OrderStatus.PAID;
     }
 
     @EventSourcingHandler
     void on(OrderShipped event) {
+        this.version++;
         this.status = OrderStatus.SHIPPED;
     }
 
     @EventSourcingHandler
     void on(OrderDelivered event) {
+        this.version++;
         this.status = OrderStatus.DELIVERED;
     }
 
     @EventSourcingHandler
     void on(OrderCancelled event) {
+        this.version++;
         this.status = OrderStatus.CANCELLED;
     }
 
@@ -114,5 +130,16 @@ public class Order {
 
     public OrderStatus status() {
         return status;
+    }
+
+    public long version() {
+        return version;
+    }
+
+    /** 409 without field errors when the client did not see the current version: it has to reload first. */
+    public void requireVersion(long expected) {
+        if (expected != version) {
+            throw new StaleVersionException("Order " + id + " is at version " + version + ", not " + expected);
+        }
     }
 }

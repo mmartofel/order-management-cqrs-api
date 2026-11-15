@@ -9,8 +9,13 @@ import pl.piomin.services.order.domain.Order;
 @Component
 public class CancelOrderHandler {
 
+    /** @return the order's version after the command */
     @CommandHandler
-    public void handle(CancelOrderCommand command, @InjectEntity Order order, EventAppender eventAppender) {
+    public long handle(CancelOrderCommand command, @InjectEntity Order order, EventAppender eventAppender) {
+        order.requireVersion(command.version());
+        // computed before the append: Axon applies the appended event to the entity right away
+        long next = command.version() + 1;
         eventAppender.append(order.cancel(command.reason()));
+        return next;
     }
 }

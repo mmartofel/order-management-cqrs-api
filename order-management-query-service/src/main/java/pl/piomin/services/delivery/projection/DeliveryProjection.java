@@ -5,12 +5,12 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 import pl.piomin.services.config.EventRecord;
+import pl.piomin.services.delivery.domain.DeliveryStatus;
 import pl.piomin.services.delivery.domain.event.DeliveryCancelled;
 import pl.piomin.services.delivery.domain.event.DeliveryCompleted;
 import pl.piomin.services.delivery.domain.event.DeliveryEvent;
 import pl.piomin.services.delivery.domain.event.DeliveryScheduled;
 import pl.piomin.services.delivery.domain.event.DeliveryShipped;
-import pl.piomin.services.delivery.query.DeliveryStatus;
 import pl.piomin.services.delivery.query.DeliveryView;
 import pl.piomin.services.delivery.query.DeliveryViewRepository;
 

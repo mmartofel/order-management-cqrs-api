@@ -5,9 +5,6 @@ import org.axonframework.messaging.core.unitofwork.ProcessingContext;
 import org.axonframework.messaging.eventhandling.gateway.EventAppender;
 import org.axonframework.modelling.annotation.InjectEntity;
 import org.springframework.stereotype.Component;
-import pl.piomin.services.exception.BusinessRuleViolationException;
-import pl.piomin.services.order.domain.Order;
-import pl.piomin.services.order.domain.OrderStatus;
 import pl.piomin.services.order.domain.Orders;
 import pl.piomin.services.payment.domain.Payment;
 import pl.piomin.services.payment.domain.event.PaymentRefunded;
@@ -16,15 +13,16 @@ import pl.piomin.services.payment.domain.event.PaymentRefunded;
 @Component
 public class RefundPaymentHandler {
 
+    /** @return the payment's version after the command */
     @CommandHandler
-    public void handle(RefundPaymentCommand command, @InjectEntity Payment payment, ProcessingContext context,
+    public long handle(RefundPaymentCommand command, @InjectEntity Payment payment, ProcessingContext context,
                        EventAppender eventAppender) {
+        payment.requireVersion(command.version());
+        // computed before the append: Axon applies the appended event to the entity right away
+        long next = command.version() + 1;
         PaymentRefunded refunded = payment.refund(command.reason());
-        Order order = Orders.load(payment.orderId(), context);
-        if (order.status() != OrderStatus.CANCELLED) {
-            throw new BusinessRuleViolationException(
-                    "Order " + order.id() + " is " + order.status() + "; only a cancelled order is refunded");
-        }
+        Orders.load(payment.orderId(), context).acceptsRefund();
         eventAppender.append(refunded);
+        return next;
     }
 }

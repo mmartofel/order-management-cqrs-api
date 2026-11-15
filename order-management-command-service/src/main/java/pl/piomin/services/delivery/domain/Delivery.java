@@ -9,6 +9,7 @@ import pl.piomin.services.delivery.domain.event.DeliveryEvent;
 import pl.piomin.services.delivery.domain.event.DeliveryScheduled;
 import pl.piomin.services.delivery.domain.event.DeliveryShipped;
 import pl.piomin.services.exception.BusinessRuleViolationException;
+import pl.piomin.services.exception.StaleVersionException;
 
 import java.util.UUID;
 
@@ -19,6 +20,8 @@ public class Delivery {
     private UUID id;
     private UUID orderId;
     private DeliveryStatus status;
+    /** Sequence number of the last event applied: 0 after the creating event, as in the event store. */
+    private long version = -1;
 
     @EntityCreator
     public Delivery() {
@@ -48,6 +51,7 @@ public class Delivery {
 
     @EventSourcingHandler
     void on(DeliveryScheduled event) {
+        this.version++;
         this.id = event.deliveryId();
         this.orderId = event.orderId();
         this.status = DeliveryStatus.SCHEDULED;
@@ -55,16 +59,19 @@ public class Delivery {
 
     @EventSourcingHandler
     void on(DeliveryShipped event) {
+        this.version++;
         this.status = DeliveryStatus.SHIPPED;
     }
 
     @EventSourcingHandler
     void on(DeliveryCompleted event) {
+        this.version++;
         this.status = DeliveryStatus.DELIVERED;
     }
 
     @EventSourcingHandler
     void on(DeliveryCancelled event) {
+        this.version++;
         this.status = DeliveryStatus.CANCELLED;
     }
 
@@ -78,5 +85,16 @@ public class Delivery {
 
     public DeliveryStatus status() {
         return status;
+    }
+
+    public long version() {
+        return version;
+    }
+
+    /** 409 without field errors when the client did not see the current version: it has to reload first. */
+    public void requireVersion(long expected) {
+        if (expected != version) {
+            throw new StaleVersionException("Delivery " + id + " is at version " + version + ", not " + expected);
+        }
     }
 }

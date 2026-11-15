@@ -18,8 +18,8 @@ public class ItemService {
         this.repository = repository;
     }
 
-    public Page<ItemResponse> findAll(Pageable pageable) {
-        return repository.findAll(pageable).map(ItemResponse::of);
+    public Page<ItemResponse> findAll(ItemFilter filter, Pageable pageable) {
+        return repository.findAll(filter.toSpecification(), pageable).map(ItemResponse::of);
     }
 
     public ItemResponse findById(Long id) {
