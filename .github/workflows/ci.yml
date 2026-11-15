@@ -25,6 +25,13 @@ jobs:
           key: maven-${{ runner.os }}-${{ hashFiles('**/pom.xml') }}
           restore-keys: maven-${{ runner.os }}-
 
+      # a broken patch fails the build, not the deploy
+      - name: Render deployment manifests
+        run: |
+          for dir in deploy/overlays/* deploy/environments/example; do
+            echo "== $dir"; kubectl kustomize "$dir" > /dev/null
+          done
+
       # Testcontainers starts PostgreSQL and Kafka on the runner's Docker
       - name: Build and test
         run: ./mvnw -B clean verify

@@ -1,0 +1,51 @@
+# Routes without spec.host: OpenShift generates <name>-<namespace>.<apps domain>. Edge TLS, HTTP redirected to HTTPS.
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: command-service
+  labels:
+    app: command-service
+    app.kubernetes.io/part-of: order-management
+spec:
+  to:
+    kind: Service
+    name: command-service
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: query-service
+  labels:
+    app: query-service
+    app.kubernetes.io/part-of: order-management
+spec:
+  to:
+    kind: Service
+    name: query-service
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: reference-service
+  labels:
+    app: reference-service
+    app.kubernetes.io/part-of: order-management
+spec:
+  to:
+    kind: Service
+    name: reference-service
+  port:
+    targetPort: http
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect

@@ -1,0 +1,22 @@
+# OpenShift: the base plus Routes and the runtime icons of the Developer Topology view.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base
+  - routes.yaml
+patches:
+  - target: { kind: Deployment, name: "(command|query|reference)-service" }
+    patch: |-
+      - op: add
+        path: /metadata/labels/app.openshift.io~1runtime
+        value: spring-boot
+  - target: { kind: Deployment, name: "postgres-.*" }
+    patch: |-
+      - op: add
+        path: /metadata/labels/app.openshift.io~1runtime
+        value: postgresql
+  - target: { kind: Deployment, name: kafka }
+    patch: |-
+      - op: add
+        path: /metadata/labels/app.openshift.io~1runtime
+        value: amq

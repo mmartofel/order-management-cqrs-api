@@ -1,0 +1,108 @@
+# command-service: settings in the ConfigMap, database credentials from the Secret postgres-command
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: command-service
+  labels:
+    app: command-service
+    app.kubernetes.io/name: command-service
+    app.kubernetes.io/part-of: order-management
+data:
+  SPRING_DATASOURCE_URL: "jdbc:postgresql://postgres-command:5432/orders_command"
+  SPRING_KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
+  REFERENCE_BASE_URL: "http://reference-service:8082"
+  AXONIQ_UPDATE_CHECKER_DISABLED: "true"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: command-service
+  labels:
+    app: command-service
+    app.kubernetes.io/name: command-service
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: order-management
+    app.kubernetes.io/version: "1.0.0"
+  annotations:
+    app.openshift.io/connects-to: '[{"apiVersion":"apps/v1","kind":"Deployment","name":"postgres-command"},{"apiVersion":"apps/v1","kind":"Deployment","name":"kafka"},{"apiVersion":"apps/v1","kind":"Deployment","name":"reference-service"}]'
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: command-service
+  template:
+    metadata:
+      labels:
+        app: command-service
+        app.kubernetes.io/name: command-service
+        app.kubernetes.io/component: api
+        app.kubernetes.io/part-of: order-management
+    spec:
+      terminationGracePeriodSeconds: 45
+      containers:
+        - name: command-service
+          image: order-management-command-service      # bare name; Skaffold sets the registry and tag
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: command-service
+          env:
+            - name: SPRING_DATASOURCE_USERNAME
+              valueFrom:
+                secretKeyRef: { name: postgres-command, key: username }
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: postgres-command, key: password }
+          startupProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 36
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: http
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            periodSeconds: 10
+            failureThreshold: 3
+          lifecycle:
+            preStop:                      # let the Service stop routing before graceful shutdown starts
+              exec:
+                command: ["sh", "-c", "sleep 10"]
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            capabilities:
+              drop: [ALL]
+            seccompProfile:
+              type: RuntimeDefault
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: command-service
+  labels:
+    app: command-service
+    app.kubernetes.io/name: command-service
+    app.kubernetes.io/part-of: order-management
+spec:
+  selector:
+    app: command-service
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

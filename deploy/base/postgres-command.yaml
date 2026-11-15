@@ -1,0 +1,100 @@
+# PostgreSQL for the command-service: data on a PVC; credentials from the Secret postgres-command (deploy/ensure-secrets.sh)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-command
+  labels:
+    app: postgres-command
+    app.kubernetes.io/name: postgres-command
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: order-management
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres-command
+  labels:
+    app: postgres-command
+    app.kubernetes.io/name: postgres-command
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: order-management
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate            # ReadWriteOnce: the old pod releases the volume before the new one mounts it
+  selector:
+    matchLabels:
+      app: postgres-command
+  template:
+    metadata:
+      labels:
+        app: postgres-command
+        app.kubernetes.io/name: postgres-command
+        app.kubernetes.io/component: database
+        app.kubernetes.io/part-of: order-management
+    spec:
+      containers:
+        - name: postgres
+          image: docker.io/library/postgres:18
+          ports:
+            - name: postgres
+              containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              value: orders_command
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef: { name: postgres-command, key: username }
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: postgres-command, key: password }
+          startupProbe:         # pg_isready over TCP: during the first initdb the server listens only on the socket
+            exec:
+              command: ["sh", "-c", 'pg_isready -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"']
+            initialDelaySeconds: 2
+            periodSeconds: 2
+            failureThreshold: 60
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", 'pg_isready -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"']
+            periodSeconds: 10
+          livenessProbe:
+            exec:
+              command: ["sh", "-c", 'pg_isready -h 127.0.0.1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"']
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 512Mi
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql      # postgres:18 keeps PGDATA in a versioned folder below this
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: postgres-command
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-command
+  labels:
+    app: postgres-command
+    app.kubernetes.io/name: postgres-command
+    app.kubernetes.io/part-of: order-management
+spec:
+  selector:
+    app: postgres-command
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
