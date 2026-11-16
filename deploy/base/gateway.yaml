@@ -1,5 +1,5 @@
 # order-management: the API's one origin (docs/DEPLOY-CONVENTION.md: the UI proxies /api/ and /actuator/{health,info} to
-# http://order-management:8080). Routes reads to query-service and writes to order-management by HTTP method, reference
+# http://order-management:8080). Routes reads to query-service and writes to command-service by HTTP method, reference
 # data to reference-service; no database, no Secret.
 apiVersion: v1
 kind: ConfigMap
@@ -11,7 +11,7 @@ metadata:
     app.kubernetes.io/part-of: order-management
 data:
   SERVER_PORT: "8080"
-  COMMAND_SERVICE_URL: "http://order-management:8080"
+  COMMAND_SERVICE_URL: "http://command-service:8080"
   QUERY_SERVICE_URL: "http://query-service:8081"
   REFERENCE_SERVICE_URL: "http://reference-service:8082"
 ---
@@ -40,7 +40,7 @@ spec:
       terminationGracePeriodSeconds: 45
       containers:
         - name: order-management
-          image: order-management-order-management      # bare name; Skaffold sets the registry and tag
+          image: order-management-gateway      # bare name; Skaffold sets the registry and tag
           ports:
             - name: http
               containerPort: 8080
